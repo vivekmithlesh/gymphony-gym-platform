@@ -24,9 +24,7 @@ export function Problems() {
     <section className="relative py-24 md:py-32">
       <div className="mx-auto max-w-7xl px-6">
         <div className="mx-auto max-w-2xl text-center">
-          <p className="text-sm font-semibold uppercase tracking-wider text-primary">
-            The Problem
-          </p>
+          <p className="text-sm font-semibold uppercase tracking-wider text-primary">The Problem</p>
           <h2 className="mt-3 font-display text-4xl font-bold tracking-tight md:text-5xl">
             Running a gym shouldn't feel like running in place.
           </h2>

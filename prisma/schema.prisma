@@ -1,0 +1,290 @@
+/// Prisma schema for the gym management SaaS data model.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  MEMBER
+  ADMIN
+  STAFF
+}
+
+enum MembershipStatus {
+  ACTIVE
+  OVERDUE
+  EXPIRED
+}
+
+enum MembershipBillingPeriod {
+  TRIAL
+  MONTHLY
+  ANNUAL
+}
+
+enum InventoryCategory {
+  Drink
+  Gear
+  PT
+}
+
+enum InventoryStockStatus {
+  IN_STOCK
+  LOW_STOCK
+  OUT_OF_STOCK
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum OtpPurpose {
+  OWNER_SIGNUP
+  MEMBER_LOGIN
+}
+
+model User {
+  id                 String              @id @default(uuid()) @db.Uuid
+  role               UserRole
+  fullName           String              @map("full_name")
+  phone              String              @unique
+  email              String?             @unique
+  avatar             String?
+  isActive           Boolean             @default(true) @map("is_active")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  ownedGyms          Gym[]               @relation("GymOwner")
+  memberships        Membership[]        @relation("MembershipUser")
+  attendanceSessions AttendanceSession[]
+  paymentRecords     PaymentRecord[]
+
+  @@index([phone])
+  @@index([createdAt])
+  @@index([role])
+  @@map("users")
+}
+
+model Gym {
+  id                 String              @id @default(uuid()) @db.Uuid
+  ownerUserId        String              @map("owner_user_id") @db.Uuid
+  name               String
+  city               String
+  location           String?
+  status             String
+  totalMembers       Int                 @default(0) @map("total_members")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  owner              User                @relation("GymOwner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  membershipPlans    MembershipPlan[]
+  memberships        Membership[]
+  attendanceSessions AttendanceSession[]
+  inventoryProducts  InventoryProduct[]
+  notifications      Notification[]
+  paymentRecords     PaymentRecord[]
+  discoveryProfile   DiscoveryProfile?
+  campaigns          Campaign[]
+  gymSettings        GymSetting?
+
+  @@index([ownerUserId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("gyms")
+}
+
+model MembershipPlan {
+  id            String                   @id @default(uuid()) @db.Uuid
+  gymId         String                   @map("gym_id") @db.Uuid
+  name          String
+  billingPeriod MembershipBillingPeriod  @map("billing_period")
+  pricePaise    Int                      @map("price_paise")
+  displayPrice  String                   @map("display_price")
+  status        MembershipStatus
+  createdAt     DateTime                 @default(now()) @map("created_at")
+  updatedAt     DateTime                 @updatedAt @map("updated_at")
+  gym           Gym                      @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  memberships   Membership[]
+
+  @@index([gymId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("membership_plans")
+}
+
+model Membership {
+  id              String           @id @default(uuid()) @db.Uuid
+  memberUserId    String           @map("member_user_id") @db.Uuid
+  gymId           String           @map("gym_id") @db.Uuid
+  planId          String           @map("plan_id") @db.Uuid
+  planName        String           @map("plan_name")
+  dueDate         DateTime         @map("due_date") @db.Date
+  expiryDate      DateTime         @map("expiry_date") @db.Date
+  status          MembershipStatus
+  points          Int              @default(0)
+  memberRank      Int?             @map("member_rank")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  memberUser      User             @relation("MembershipUser", fields: [memberUserId], references: [id], onDelete: Cascade)
+  gym             Gym              @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  plan            MembershipPlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  paymentRecords  PaymentRecord[]
+
+  @@index([memberUserId])
+  @@index([gymId])
+  @@index([planId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("memberships")
+}
+
+model AttendanceSession {
+  id           String    @id @default(uuid()) @db.Uuid
+  memberUserId String    @map("member_user_id") @db.Uuid
+  gymId        String    @map("gym_id") @db.Uuid
+  checkInAt    DateTime  @map("check_in_at")
+  checkOutAt   DateTime? @map("check_out_at")
+  bonusLabel   String?   @map("bonus_label")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  memberUser   User      @relation(fields: [memberUserId], references: [id], onDelete: Cascade)
+  gym          Gym       @relation(fields: [gymId], references: [id], onDelete: Cascade)
+
+  @@index([memberUserId])
+  @@index([gymId])
+  @@index([createdAt])
+  @@map("attendance_sessions")
+}
+
+model InventoryProduct {
+  id          Int                  @id @default(autoincrement())
+  gymId       String               @map("gym_id") @db.Uuid
+  name        String
+  category    InventoryCategory
+  price       Int
+  stock       Int
+  status      InventoryStockStatus
+  showInApp   Boolean              @default(true) @map("show_in_app")
+  icon        String
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+  gym         Gym                  @relation(fields: [gymId], references: [id], onDelete: Cascade)
+
+  @@index([gymId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("inventory_products")
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  gymId     String   @map("gym_id") @db.Uuid
+  text      String
+  timeLabel String   @map("time_label")
+  type      String
+  color     String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  gym       Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
+
+  @@index([gymId])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+model PaymentRecord {
+  id                String         @id @default(uuid()) @db.Uuid
+  gymId             String         @map("gym_id") @db.Uuid
+  memberUserId      String         @map("member_user_id") @db.Uuid
+  membershipId      String?        @map("membership_id") @db.Uuid
+  amountPaise       Int            @map("amount_paise")
+  amountDisplay     String         @map("amount_display")
+  status            PaymentStatus
+  provider          String
+  providerOrderId   String?        @map("provider_order_id")
+  providerPaymentId String?        @map("provider_payment_id")
+  paidAt            DateTime?      @map("paid_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+  gym               Gym            @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  memberUser        User           @relation(fields: [memberUserId], references: [id], onDelete: Cascade)
+  membership        Membership?    @relation(fields: [membershipId], references: [id], onDelete: SetNull)
+
+  @@index([gymId])
+  @@index([memberUserId])
+  @@index([membershipId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("payment_records")
+}
+
+model DiscoveryProfile {
+  gymId      String   @id @map("gym_id") @db.Uuid
+  score      Int
+  rank       Int
+  image      String
+  rating     Decimal  @db.Decimal(2, 1)
+  amenities  Json
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  gym        Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
+
+  @@index([rank])
+  @@index([createdAt])
+  @@map("discovery_profiles")
+}
+
+model Campaign {
+  id              String   @id @default(uuid()) @db.Uuid
+  gymId           String   @map("gym_id") @db.Uuid
+  name            String
+  discountPercent Int      @map("discount_percent")
+  appliesTo       String   @map("applies_to")
+  status          String
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  gym             Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
+
+  @@index([gymId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("campaigns")
+}
+
+model AuthOtp {
+  id         String     @id @default(uuid()) @db.Uuid
+  phone      String
+  purpose    OtpPurpose
+  codeHash   String     @map("code_hash")
+  metadata   Json?
+  expiresAt  DateTime   @map("expires_at")
+  verifiedAt DateTime?  @map("verified_at")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  @@index([phone])
+  @@index([purpose])
+  @@index([createdAt])
+  @@map("auth_otps")
+}
+
+model GymSetting {
+  gymId               String   @id @map("gym_id") @db.Uuid
+  automaticReminders  Boolean  @default(true) @map("automatic_reminders")
+  dailySummaryEmail   Boolean  @default(false) @map("daily_summary_email")
+  ownerEmail          String   @map("owner_email")
+  contactNumber       String   @map("contact_number")
+  logoUrl             String?  @map("logo_url")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  gym                 Gym      @relation(fields: [gymId], references: [id], onDelete: Cascade)
+
+  @@map("gym_settings")
+}

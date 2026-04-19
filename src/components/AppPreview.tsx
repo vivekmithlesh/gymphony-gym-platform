@@ -17,7 +17,8 @@ export function AppPreview() {
             for your entire gym.
           </h2>
           <p className="mt-4 text-lg text-muted-foreground">
-            Designed mobile-first so you can run operations from anywhere — the floor, the café, or the beach.
+            Designed mobile-first so you can run operations from anywhere — the floor, the café, or
+            the beach.
           </p>
         </div>
 

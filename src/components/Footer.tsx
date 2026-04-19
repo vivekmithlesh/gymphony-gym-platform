@@ -1,5 +1,6 @@
 import { Phone, Mail, MapPin } from "lucide-react";
 import { Logo } from "./Logo";
+import { Link } from "@tanstack/react-router";
 
 export function Footer() {
   return (
@@ -7,9 +8,12 @@ export function Footer() {
       <div className="mx-auto max-w-7xl px-6 py-16">
         <div className="grid gap-12 md:grid-cols-4">
           <div className="md:col-span-2">
-            <Logo />
+            <Link to="/">
+              <Logo />
+            </Link>
             <p className="mt-4 max-w-sm text-sm text-muted-foreground">
-              The all-in-one gym management platform built to help ambitious owners automate operations and grow membership.
+              The all-in-one gym management platform built to help ambitious owners automate
+              operations and grow membership.
             </p>
             <div className="mt-6 space-y-2 text-sm">
               <p className="font-semibold">Founder · Vivek Kumar</p>
@@ -40,19 +44,47 @@ export function Footer() {
           <div>
             <h4 className="text-sm font-semibold">Product</h4>
             <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
-              <li><a href="#features" className="hover:text-primary">Features</a></li>
-              <li><a href="#preview" className="hover:text-primary">App Preview</a></li>
-              <li><a href="#marketing" className="hover:text-primary">Discovery</a></li>
-              <li><a href="#pricing" className="hover:text-primary">Pricing</a></li>
+              <li>
+                <a href="#features" className="hover:text-primary">
+                  Features
+                </a>
+              </li>
+              <li>
+                <a href="#preview" className="hover:text-primary">
+                  App Preview
+                </a>
+              </li>
+              <li>
+                <a href="#marketing" className="hover:text-primary">
+                  Discovery
+                </a>
+              </li>
+              <li>
+                <a href="#pricing" className="hover:text-primary">
+                  Pricing
+                </a>
+              </li>
             </ul>
           </div>
 
           <div>
             <h4 className="text-sm font-semibold">Company</h4>
             <ul className="mt-4 space-y-3 text-sm text-muted-foreground">
-              <li><a href="#cta" className="hover:text-primary">Contact</a></li>
-              <li><a href="#cta" className="hover:text-primary">Book Demo</a></li>
-              <li><a href="#cta" className="hover:text-primary">Free Trial</a></li>
+              <li>
+                <a href="#cta" className="hover:text-primary">
+                  Contact
+                </a>
+              </li>
+              <li>
+                <a href="#cta" className="hover:text-primary">
+                  Book Demo
+                </a>
+              </li>
+              <li>
+                <a href="#cta" className="hover:text-primary">
+                  Free Trial
+                </a>
+              </li>
             </ul>
           </div>
         </div>

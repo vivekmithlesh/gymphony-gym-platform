@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { ArrowRight, PlayCircle, Sparkles } from "lucide-react";
 import dashboard from "@/assets/dashboard-hero.png";
+import { Link } from "@tanstack/react-router";
 
 export function Hero() {
   return (
@@ -30,17 +31,18 @@ export function Hero() {
           </h1>
 
           <p className="mt-6 max-w-xl text-lg text-muted-foreground md:text-xl">
-            Automate payments, track attendance, and get discovered by new members—all in one premium platform built for ambitious gym owners.
+            Automate payments, track attendance, and get discovered by new members—all in one
+            premium platform built for ambitious gym owners.
           </p>
 
           <div className="mt-10 flex flex-wrap items-center gap-4">
-            <a
-              href="#cta"
+            <Link
+              to="/signup"
               className="group inline-flex items-center gap-2 rounded-full bg-gradient-brand px-7 py-3.5 text-sm font-semibold text-primary-foreground shadow-elegant transition-all hover:-translate-y-0.5 hover:shadow-glow"
             >
               Start Free Trial
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-            </a>
+            </Link>
             <a
               href="#cta"
               className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-7 py-3.5 text-sm font-semibold text-foreground transition-all hover:border-primary hover:bg-accent"
@@ -61,7 +63,8 @@ export function Hero() {
               ))}
             </div>
             <p>
-              <span className="font-semibold text-foreground">500+</span> gyms automating with Gymphony
+              <span className="font-semibold text-foreground">500+</span> gyms automating with
+              Gymphony
             </p>
           </div>
         </motion.div>

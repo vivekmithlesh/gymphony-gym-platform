@@ -1,0 +1,63 @@
+version: '3.8'
+
+networks:
+  gym_network:
+    driver: bridge
+
+services:
+
+  gym_postgres:
+    image: postgres:16-alpine
+    container_name: gym_postgres
+    restart: always
+    networks:
+      - gym_network
+    environment:
+      POSTGRES_USER: gymapp
+      POSTGRES_PASSWORD: gympass123
+      POSTGRES_DB: gymdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - gym_postgres_data:/var/lib/postgresql/data
+
+  gym_redis:
+    image: redis:7-alpine
+    container_name: gym_redis
+    restart: always
+    networks:
+      - gym_network
+    ports:
+      - "6380:6379"
+    volumes:
+      - gym_redis_data:/data
+
+  gym_adminer:
+    image: adminer:latest
+    container_name: gym_adminer
+    restart: always
+    networks:
+      - gym_network
+    ports:
+      - "8081:8080"
+
+  gym_minio:
+    image: minio/minio:latest
+    container_name: gym_minio
+    restart: always
+    networks:
+      - gym_network
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: gymadmin
+      MINIO_ROOT_PASSWORD: gymminiopass
+    ports:
+      - "9002:9000"
+      - "9003:9001"
+    volumes:
+      - gym_minio_data:/data
+
+volumes:
+  gym_postgres_data:
+  gym_redis_data:
+  gym_minio_data:

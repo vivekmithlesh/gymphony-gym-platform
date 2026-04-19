@@ -83,6 +83,8 @@
   --surface-foreground: oklch(0.98 0.005 290);
 
   --gradient-brand: linear-gradient(135deg, #5A0EFF 0%, #7B2CFF 50%, #C084FC 100%);
+  --gradient-success: linear-gradient(135deg, #059669 0%, #10b981 50%, #34d399 100%);
+  --gradient-danger: linear-gradient(135deg, #dc2626 0%, #ef4444 50%, #f87171 100%);
   --gradient-brand-soft: linear-gradient(135deg, oklch(0.97 0.03 290), oklch(0.94 0.05 300));
   --gradient-dark: linear-gradient(135deg, oklch(0.16 0.05 280) 0%, oklch(0.22 0.1 285) 100%);
   --gradient-radial: radial-gradient(circle at 50% 0%, color-mix(in oklab, var(--primary) 30%, transparent), transparent 70%);

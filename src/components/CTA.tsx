@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { ArrowRight, Phone } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 
 export function CTA() {
   return (
@@ -23,13 +24,13 @@ export function CTA() {
           </p>
 
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-            <a
-              href="tel:7906240659"
+            <Link
+              to="/signup"
               className="group inline-flex items-center gap-2 rounded-full bg-gradient-brand px-8 py-4 text-sm font-semibold text-primary-foreground shadow-glow transition-all hover:-translate-y-0.5"
             >
               Start Free Trial
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-            </a>
+            </Link>
             <a
               href="tel:7906240659"
               className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-8 py-4 text-sm font-semibold text-surface-foreground backdrop-blur transition-all hover:bg-white/10"

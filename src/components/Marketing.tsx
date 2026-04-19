@@ -36,11 +36,11 @@ export function Marketing() {
             Get discovered
           </p>
           <h2 className="mt-3 font-display text-4xl font-bold tracking-tight md:text-5xl">
-            Get discovered by new members{" "}
-            <span className="text-gradient-brand">in your city.</span>
+            Get discovered by new members <span className="text-gradient-brand">in your city.</span>
           </h2>
           <p className="mt-4 text-lg text-muted-foreground">
-            Gymphony is more than software — it's a marketplace. Every gym on the platform gets a profile, a map pin, and a ranking that brings new members to your door.
+            Gymphony is more than software — it's a marketplace. Every gym on the platform gets a
+            profile, a map pin, and a ranking that brings new members to your door.
           </p>
 
           <div className="mt-8 space-y-4">
@@ -89,9 +89,7 @@ export function Marketing() {
                 <div
                   key={g.rank}
                   className={`flex items-center gap-4 rounded-xl border p-3.5 ${
-                    g.you
-                      ? "border-primary bg-gradient-brand-soft"
-                      : "border-border bg-background"
+                    g.you ? "border-primary bg-gradient-brand-soft" : "border-border bg-background"
                   }`}
                 >
                   <div

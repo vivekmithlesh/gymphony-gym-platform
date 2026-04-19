@@ -24,7 +24,10 @@ const features = [
 
 export function Solutions() {
   return (
-    <section id="features" className="relative overflow-hidden bg-gradient-dark py-24 text-surface-foreground md:py-32">
+    <section
+      id="features"
+      className="relative overflow-hidden bg-gradient-dark py-24 text-surface-foreground md:py-32"
+    >
       <div className="glow-orb top-0 left-1/3 h-96 w-96 bg-primary opacity-30" />
       <div className="glow-orb bottom-0 right-0 h-80 w-80 bg-primary-glow opacity-20" />
 
@@ -34,8 +37,7 @@ export function Solutions() {
             The Solution
           </p>
           <h2 className="mt-3 font-display text-4xl font-bold tracking-tight md:text-5xl">
-            Everything your gym needs.{" "}
-            <span className="text-gradient-brand">In one place.</span>
+            Everything your gym needs. <span className="text-gradient-brand">In one place.</span>
           </h2>
           <p className="mt-4 text-lg text-surface-foreground/70">
             Replace 5 tools, 3 spreadsheets, and a notebook with a single beautiful platform.
@@ -60,7 +62,10 @@ export function Solutions() {
               <p className="mt-3 text-surface-foreground/70">{f.desc}</p>
               <ul className="mt-6 space-y-2">
                 {f.bullets.map((b) => (
-                  <li key={b} className="flex items-center gap-2 text-sm text-surface-foreground/85">
+                  <li
+                    key={b}
+                    className="flex items-center gap-2 text-sm text-surface-foreground/85"
+                  >
                     <Check className="h-4 w-4 text-primary-glow" />
                     {b}
                   </li>

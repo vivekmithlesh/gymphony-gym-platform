@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Menu, X } from "lucide-react";
 import { Logo } from "./Logo";
+import { Link } from "@tanstack/react-router";
 
 const links = [
   { href: "#features", label: "Features" },
@@ -23,15 +24,13 @@ export function Navbar() {
   return (
     <header
       className={`fixed top-0 z-50 w-full transition-all duration-300 ${
-        scrolled
-          ? "border-b border-border/60 bg-background/80 backdrop-blur-xl"
-          : "bg-transparent"
+        scrolled ? "border-b border-border/60 bg-background/80 backdrop-blur-xl" : "bg-transparent"
       }`}
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        <a href="#top" className="flex items-center">
+        <Link to="/" className="flex items-center">
           <Logo />
-        </a>
+        </Link>
 
         <nav className="hidden items-center gap-8 md:flex">
           {links.map((l) => (
@@ -46,18 +45,18 @@ export function Navbar() {
         </nav>
 
         <div className="hidden items-center gap-3 md:flex">
-          <a
-            href="#cta"
+          <Link
+            to="/member-login"
             className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
           >
-            Sign in
-          </a>
-          <a
-            href="#cta"
+            Member Login
+          </Link>
+          <Link
+            to="/signup"
             className="rounded-full bg-gradient-brand px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-soft transition-all hover:shadow-elegant hover:-translate-y-0.5"
           >
             Start Free Trial
-          </a>
+          </Link>
         </div>
 
         <button
@@ -82,13 +81,20 @@ export function Navbar() {
                 {l.label}
               </a>
             ))}
-            <a
-              href="#cta"
+            <Link
+              to="/member-login"
+              onClick={() => setOpen(false)}
+              className="rounded-lg px-4 py-3 text-sm font-medium text-foreground hover:bg-accent"
+            >
+              Member Login
+            </Link>
+            <Link
+              to="/signup"
               onClick={() => setOpen(false)}
               className="mt-2 rounded-full bg-gradient-brand px-5 py-3 text-center text-sm font-semibold text-primary-foreground shadow-soft"
             >
               Start Free Trial
-            </a>
+            </Link>
           </div>
         </div>
       )}
