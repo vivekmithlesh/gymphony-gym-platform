@@ -1,0 +1,784 @@
+import { useState, useEffect, useRef, memo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { 
+  Search, 
+  Filter, 
+  MoreHorizontal, 
+  Edit2, 
+  CheckCircle, 
+  Trash2,
+  Mail,
+  Phone,
+  QrCode,
+  X,
+  Sparkles,
+  DollarSign,
+  MessageSquare
+} from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { toast } from "sonner";
+import { BackButton } from "./BackButton";
+import { supabase } from "@/supabase";
+import { QRCodeSVG } from "qrcode.react";
+
+// Optimized Member Row Component
+const MemberRow = memo(({ 
+  member, 
+  index, 
+  onSelect, 
+  onEdit, 
+  onMarkPaid, 
+  onCollectPayment,
+  onDelete 
+}: { 
+  member: any; 
+  index: number;
+  onSelect: (m: any) => void;
+  onEdit: (m: any) => void;
+  onMarkPaid: (m: any) => void;
+  onCollectPayment: (m: any) => void;
+  onDelete: (m: any) => void;
+}) => (
+  <motion.tr 
+    initial={{ opacity: 0, y: 10 }}
+    animate={{ opacity: 1, y: 0 }}
+    transition={{ delay: index * 0.05 }}
+    className="hover:bg-slate-50/80 transition-colors group"
+  >
+    <td className="px-6 py-4">
+      <div className="flex items-center gap-3">
+        <div className="h-9 w-9 rounded-full bg-gradient-brand flex items-center justify-center font-bold text-[10px] text-white">
+          {member.full_name.split(' ').map((n: string) => n[0]).join('')}
+        </div>
+        <span className="font-semibold text-slate-900">{member.full_name}</span>
+      </div>
+    </td>
+    <td className="px-6 py-4 text-sm text-slate-600">{member.mobile_number}</td>
+    <td className="px-6 py-4 text-sm text-slate-600">{member.membership_plan}</td>
+    <td className="px-6 py-4 text-sm text-slate-600">
+      <div className="font-semibold text-slate-900">₹{Number(member.amount_paid || 0).toLocaleString()}</div>
+    </td>
+    <td className="px-6 py-4 text-sm text-slate-600">
+      <Button 
+        variant="ghost" 
+        size="icon" 
+        onClick={() => onSelect(member)}
+        className="h-9 w-9 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-xl transition-all"
+      >
+        <QrCode className="h-5 w-5" />
+      </Button>
+    </td>
+    <td className="px-6 py-4">
+      <Badge className={`rounded-full px-2.5 py-0.5 border-none font-bold text-[10px] shadow-sm ${
+        member.status === "Active" 
+          ? "bg-green-100 text-green-700" 
+          : "bg-red-100 text-red-700"
+      }`}>
+        {member.status || "Active"}
+      </Badge>
+    </td>
+    <td className="px-6 py-4 text-right">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-primary hover:bg-primary/5 rounded-lg">
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-40 bg-white border-slate-200 text-slate-900 rounded-xl p-1 shadow-elegant">
+          <DropdownMenuItem onClick={() => {
+            const message = `Hello ${member.full_name}, how can we help you today?`;
+            window.open(`https://wa.me/${member.mobile_number.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank');
+          }} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-green-50 cursor-pointer text-green-600">
+            <MessageSquare className="h-3.5 w-3.5" />
+            <span className="text-xs font-medium">Chat with Us</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onCollectPayment(member)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-primary/5 cursor-pointer text-primary">
+            <DollarSign className="h-3.5 w-3.5" />
+            <span className="text-xs font-medium">Collect Payment</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onEdit(member)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer">
+            <Edit2 className="h-3.5 w-3.5 text-slate-400" />
+            <span className="text-xs font-medium">Edit</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onMarkPaid(member)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-green-50 cursor-pointer text-green-600">
+            <CheckCircle className="h-3.5 w-3.5" />
+            <span className="text-xs font-medium">Mark Paid</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onDelete(member)} className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-red-50 text-red-600 cursor-pointer">
+            <Trash2 className="h-3.5 w-3.5" />
+            <span className="text-xs font-medium">Delete</span>
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </td>
+  </motion.tr>
+));
+
+MemberRow.displayName = "MemberRow";
+
+export function MembersList() {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [members, setMembers] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [selectedMember, setSelectedMember] = useState<any>(null);
+  const [editingMember, setEditingMember] = useState<any>(null);
+  const [paymentMember, setPaymentMember] = useState<any>(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [availablePlans, setAvailablePlans] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [editForm, setEditForm] = useState({
+    full_name: "",
+    mobile_number: "",
+    membership_plan: "",
+    status: ""
+  });
+
+  // Get current user
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUser(user);
+    };
+    getUser();
+  }, []);
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    fetchMembers();
+    fetchAvailablePlans();
+  }, [currentUser]);
+
+  const fetchAvailablePlans = async () => {
+    try {
+      // First try gym_plans
+      let query = supabase.from("gym_plans").select("*").order("name", { ascending: true });
+      
+      if (currentUser?.id) {
+        query = query.eq('gym_owner_id', String(currentUser.id));
+      }
+
+      const { data: plansData, error: plansError } = await query;
+
+      console.log("DEBUG: MembersList Plans Fetch:", { data: plansData, error: plansError, ownerId: currentUser?.id });
+
+      if (plansError) throw plansError;
+
+      if (plansData && plansData.length > 0) {
+        setAvailablePlans(plansData);
+      } else {
+        // Fallback: fetch distinct from members
+        let mQuery = supabase.from("members").select("membership_plan");
+        
+        if (currentUser?.id) {
+          mQuery = mQuery.eq('gym_owner_id', String(currentUser.id));
+        }
+
+        const { data: membersData, error: membersError } = await mQuery;
+
+        if (membersError) throw membersError;
+
+        const distinctPlans = Array.from(new Set((membersData || [])
+          .map(m => m.membership_plan)
+          .filter(Boolean)))
+          .map(planName => ({
+            id: planName,
+            name: planName,
+            price: 0,
+            duration: 1
+          }));
+        
+        setAvailablePlans(distinctPlans);
+      }
+    } catch (err) {
+      console.warn("Error in fetchAvailablePlans:", err);
+      // Final fallback
+      setAvailablePlans([
+        { id: 'Monthly', name: 'Monthly', price: 1500, duration: 1 },
+        { id: 'Quarterly', name: 'Quarterly', price: 4000, duration: 3 },
+        { id: 'Yearly', name: 'Yearly', price: 12000, duration: 12 }
+      ]);
+    }
+  };
+
+  const fetchMembers = async () => {
+    try {
+      setIsLoading(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+
+      if (!userId) {
+        console.error("No active auth session found for members fetch.");
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('Fetching Members with owner filter:', userId);
+
+      const { data, error } = await supabase
+        .from("members")
+        .select("full_name, mobile_number, membership_plan, status, gym_owner_id, created_at, joining_date, expiry_date, avatar_url, amount_paid")
+        .eq('gym_owner_id', userId)
+        .order("full_name", { ascending: true });
+
+      console.log("CRITICAL: MembersList Members Fetch Data:", data);
+      console.log("CRITICAL: MembersList Members Fetch Error:", error);
+
+      if (error) {
+        console.error("Database Error (Members):", error.message);
+        toast.error(`Database Error: ${error.message}`);
+        return;
+      }
+      setMembers(data || []);
+    } catch (error: any) {
+      console.error("Critical error in fetchMembers:", error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const filteredMembers = members.filter(member => {
+    const matchesSearch = member.full_name.toLowerCase().includes(debouncedSearch.toLowerCase()) || 
+                          member.mobile_number.includes(debouncedSearch);
+    const matchesFilter = filterStatus === "all" || 
+                         (filterStatus === "active" && (member.status || '').toLowerCase() === "active") ||
+                         (filterStatus === "overdue" && (member.status || '').toLowerCase() === "overdue");
+    return matchesSearch && matchesFilter;
+  });
+
+  const handleDelete = async (member: any) => {
+    if (!window.confirm(`Are you sure you want to delete this member?`)) {
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from("members")
+        .delete()
+        .eq("id", member.id);
+
+      if (error) throw error;
+
+      // Update local state immediately
+      setMembers(prev => prev.filter(m => m.id !== member.id));
+      toast.success("Member deleted successfully");
+    } catch (error: any) {
+      console.warn("Delete error:", error);
+    }
+  };
+
+  const handleMarkPaid = async (member: any) => {
+    try {
+      // Find the price for the member's plan
+      const plan = availablePlans.find(p => p.name === member.membership_plan);
+      const amount = plan ? plan.price : (member.membership_plan === 'Yearly' ? 12000 : (member.membership_plan === 'Quarterly' ? 4000 : 1500));
+
+      // Update member status to 'Active'
+      const { error: memberError } = await supabase
+        .from("members")
+        .update({ status: "Active" })
+        .eq("id", member.id);
+
+      if (memberError) throw memberError;
+
+      // Record the payment
+      const { error: paymentError } = await supabase
+        .from("payments")
+        .insert([
+          {
+            member_id: member.id,
+            amount: amount,
+            status: 'Paid',
+            payment_date: new Date().toISOString(),
+          },
+        ]);
+
+      if (paymentError) {
+        console.warn("Error recording payment:", paymentError);
+      } else {
+        // Log activity
+      if (currentUser?.id) {
+        await supabase
+          .from("activity_log")
+          .insert([
+            {
+              gym_owner_id: currentUser.id,
+              activity_type: "payment",
+              description: `Received ₹${amount.toLocaleString()} from ${member.full_name} (Marked as Paid).`,
+              is_read: false,
+            },
+          ]);
+      }
+      }
+
+      // Update local state
+      setMembers(prev => prev.map(m => 
+        m.id === member.id ? { ...m, status: "Active" } : m
+      ));
+      
+      toast.success(`${member.full_name} marked as Paid and revenue recorded`);
+    } catch (error: any) {
+      console.warn("Mark Paid error:", error);
+      toast.error("Failed to mark as paid");
+    }
+  };
+
+  const handleEditClick = (member: any) => {
+    // Normalize plan name to match dropdown options exactly
+    const normalizePlan = (plan: string) => {
+      if (!plan) return "";
+      const p = plan.trim().toLowerCase();
+      if (p === "monthly") return "Monthly";
+      if (p === "quarterly") return "Quarterly";
+      if (p === "half-yearly") return "Half-Yearly";
+      if (p === "yearly") return "Yearly";
+      return ""; // Default to empty if no match to force user to select
+    };
+
+    setEditingMember(member);
+    setEditForm({
+      full_name: member.full_name,
+      mobile_number: member.mobile_number,
+      membership_plan: normalizePlan(member.membership_plan),
+      status: member.status || "Active"
+    });
+  };
+
+  const handleUpdateMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    // Validation
+    if (!editForm.full_name.trim()) {
+      console.warn("Name is required");
+      return;
+    }
+    if (!/^\d{10}$/.test(editForm.mobile_number)) {
+      console.warn("Phone number must be exactly 10 digits");
+      return;
+    }
+
+    try {
+      setIsUpdating(true);
+      const { error } = await supabase
+        .from("members")
+        .update({
+          full_name: editForm.full_name,
+          mobile_number: editForm.mobile_number,
+          membership_plan: editForm.membership_plan,
+          status: editForm.status
+        })
+        .eq("id", editingMember.id);
+
+      if (error) throw error;
+
+      // Refresh local state and re-fetch to ensure sync
+      setMembers(prev => prev.map(m => 
+        m.id === editingMember.id ? { ...m, ...editForm } : m
+      ));
+      
+      toast.success("Member updated successfully");
+      setEditingMember(null);
+      
+      // Re-fetch to confirm server-side update
+      fetchMembers();
+    } catch (error: any) {
+      console.warn("Update error:", error);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleCollectPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = Number(paymentAmount);
+    
+    if (isNaN(amount) || amount <= 0) {
+      toast.error("Please enter a valid payment amount");
+      return;
+    }
+
+    try {
+      setIsUpdating(true);
+      const { data: { session } } = await supabase.auth.getSession();
+      const userId = session?.user?.id;
+
+      if (!userId) {
+        toast.error("Session expired. Please login again.");
+        return;
+      }
+
+      // 1. Update member's amount_paid
+      const currentPaid = Number(paymentMember.amount_paid || 0);
+      const newTotal = currentPaid + amount;
+
+      const { error: updateError } = await supabase
+        .from("members")
+        .update({ amount_paid: newTotal })
+        .eq("id", paymentMember.id)
+        .eq("gym_owner_id", userId);
+
+      if (updateError) throw updateError;
+
+      // 2. Record activity
+      await supabase.from("activity_log").insert({
+        gym_owner_id: userId,
+        activity_type: "payment",
+        description: `Collected ₹${amount.toLocaleString()} from ${paymentMember.full_name}. Total paid: ₹${newTotal.toLocaleString()}.`,
+        is_read: false
+      });
+
+      toast.success(`Payment of ₹${amount.toLocaleString()} collected for ${paymentMember.full_name}`);
+      setPaymentMember(null);
+      setPaymentAmount("");
+      
+      // 3. Re-fetch to update stats
+      fetchMembers();
+    } catch (error: any) {
+      console.error("Payment error:", error.message);
+      toast.error(`Failed to collect payment: ${error.message}`);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleAction = (action: string, name: string) => {
+    toast.info(`${action} action triggered for ${name}`, {
+      position: "bottom-center",
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="mb-2">
+        <BackButton />
+      </div>
+      {/* Top Bar */}
+      <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+        <div className="relative w-full md:max-w-md">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input 
+            placeholder="Search members by name or phone..." 
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-10 bg-white border-slate-200 rounded-xl focus:ring-primary/20 text-slate-900"
+          />
+        </div>
+        
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <Filter className="h-4 w-4 text-muted-foreground hidden md:block" />
+          <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <SelectTrigger className="w-full md:w-[180px] bg-white border-slate-200 rounded-xl text-slate-900">
+              <SelectValue placeholder="Filter by status" />
+            </SelectTrigger>
+            <SelectContent className="bg-white border-slate-200 text-slate-900">
+              <SelectItem value="all">All Members</SelectItem>
+              <SelectItem value="active">Active Only</SelectItem>
+              <SelectItem value="overdue">Overdue Only</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Data Table */}
+      <div className="rounded-2xl border border-slate-200 bg-white overflow-hidden shadow-soft">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/50">
+                <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Member Name</th>
+                <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Phone Number</th>
+                <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Membership Plan</th>
+                <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Amount Paid</th>
+                <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">QR Code</th>
+                <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider">Status</th>
+                <th className="px-6 py-4 text-xs font-bold text-muted-foreground uppercase tracking-wider text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {isLoading ? (
+                [1, 2, 3].map((i) => (
+                  <tr key={i} className="animate-pulse">
+                    <td colSpan={6} className="px-6 py-8 h-16 bg-slate-50/50 mb-2"></td>
+                  </tr>
+                ))
+              ) : filteredMembers.map((member, i) => (
+                <MemberRow 
+                  key={member.id}
+                  member={member}
+                  index={i}
+                  onSelect={setSelectedMember}
+                  onEdit={handleEditClick}
+                  onMarkPaid={handleMarkPaid}
+                  onCollectPayment={setPaymentMember}
+                  onDelete={handleDelete}
+                />
+              ))}
+            </tbody>
+          </table>
+          {!isLoading && filteredMembers.length === 0 && (
+            <div className="py-20 text-center space-y-3">
+              <div className="h-12 w-12 bg-white/5 rounded-full flex items-center justify-center mx-auto text-muted-foreground">
+                <Search className="h-6 w-6" />
+              </div>
+              <p className="text-muted-foreground">No members found matching your search.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* QR Code Modal */}
+      <AnimatePresence>
+        {selectedMember && (
+          <div 
+            className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
+            onClick={() => setSelectedMember(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-sm bg-white rounded-[2.5rem] overflow-hidden shadow-2xl p-8"
+            >
+              <div className="flex flex-col items-center text-center space-y-6">
+                <div className="flex w-full items-center justify-between mb-2">
+                  <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                    <QrCode className="h-5 w-5" />
+                  </div>
+                  <button onClick={() => setSelectedMember(null)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+
+                <div className="relative p-6 bg-slate-50 rounded-3xl border-2 border-slate-100 flex flex-col items-center gap-4">
+                  <QRCodeSVG 
+                    value={selectedMember.id} 
+                    size={200}
+                    level="H"
+                    includeMargin={true}
+                    className="rounded-xl shadow-sm bg-white"
+                  />
+                  <div className="text-[10px] font-mono text-slate-400 select-all">
+                    {selectedMember.id}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <h3 className="text-xl font-bold text-slate-900">{selectedMember.full_name}</h3>
+                  <p className="text-sm text-slate-500 font-medium">Scan this QR at the gym entrance</p>
+                </div>
+
+                <div className="flex items-center gap-2 px-4 py-2 bg-primary/5 text-primary rounded-full text-xs font-bold uppercase tracking-wider">
+                  <Sparkles className="h-3 w-3" />
+                  {selectedMember.membership_plan} Member
+                </div>
+
+                <Button 
+                  onClick={() => window.print()} 
+                  className="w-full h-12 rounded-xl bg-slate-900 text-white font-bold shadow-lg hover:shadow-slate-200 transition-all mt-4"
+                >
+                  Print ID Card
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Collect Payment Modal */}
+      <AnimatePresence>
+        {paymentMember && (
+          <div 
+            className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
+            onClick={() => setPaymentMember(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md bg-white rounded-[2rem] shadow-2xl p-8 relative z-[101]"
+            >
+              <div className="flex flex-col space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                      <DollarSign className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-slate-900">Collect Payment</h3>
+                      <p className="text-sm text-slate-500">Collect fees from {paymentMember.full_name}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setPaymentMember(null)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+
+                <div className="p-4 bg-slate-50 rounded-2xl space-y-2 border border-slate-100">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Current Paid:</span>
+                    <span className="font-bold text-slate-900">₹{Number(paymentMember.amount_paid || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-slate-500">Membership Plan:</span>
+                    <span className="font-bold text-slate-900">{paymentMember.membership_plan}</span>
+                  </div>
+                </div>
+
+                <form onSubmit={handleCollectPayment} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 ml-1">Payment Amount (₹)</label>
+                    <Input 
+                      type="number"
+                      value={paymentAmount}
+                      onChange={(e) => setPaymentAmount(e.target.value)}
+                      placeholder="e.g. 2500"
+                      className="h-12 bg-slate-50 border-slate-200 rounded-xl focus:ring-primary/20 text-slate-900"
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <Button 
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setPaymentMember(null)}
+                      className="flex-1 h-12 rounded-xl font-bold text-slate-600 hover:bg-slate-100"
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      type="submit"
+                      disabled={isUpdating}
+                      className="flex-1 h-12 rounded-xl bg-primary text-white font-bold shadow-lg hover:shadow-primary/20 transition-all"
+                    >
+                      {isUpdating ? "Processing..." : "Collect Payment"}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Member Modal */}
+      <AnimatePresence>
+        {editingMember && (
+          <div 
+            className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/60 backdrop-blur-sm"
+            onClick={() => setEditingMember(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md bg-white rounded-[2rem] shadow-2xl p-8 relative z-[101]"
+            >
+              <div className="flex flex-col space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                      <Edit2 className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-xl font-bold text-slate-900">Edit Member</h3>
+                      <p className="text-sm text-slate-500">Update details for {editingMember.full_name}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setEditingMember(null)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleUpdateMember} className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 ml-1">Full Name</label>
+                    <Input 
+                      value={editForm.full_name}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, full_name: e.target.value }))}
+                      placeholder="Enter member's full name"
+                      className="h-12 bg-slate-50 border-slate-200 rounded-xl focus:ring-primary/20 text-slate-900"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 ml-1">Phone Number</label>
+                    <Input 
+                      value={editForm.mobile_number}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, mobile_number: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
+                      placeholder="10-digit mobile number"
+                      className="h-12 bg-slate-50 border-slate-200 rounded-xl focus:ring-primary/20 text-slate-900"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-slate-700 ml-1">Membership Plan</label>
+                    <Select 
+                      value={editForm.membership_plan} 
+                      onValueChange={(val) => setEditForm(prev => ({ ...prev, membership_plan: val }))}
+                    >
+                      <SelectTrigger className="h-12 bg-slate-50 border-slate-200 rounded-xl text-slate-900">
+                        <SelectValue placeholder="Select a plan" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-white border-slate-200 text-slate-900 z-[110]" position="popper" sideOffset={5}>
+                        <SelectItem value="Monthly">Monthly</SelectItem>
+                        <SelectItem value="Quarterly">Quarterly</SelectItem>
+                        <SelectItem value="Half-Yearly">Half-Yearly</SelectItem>
+                        <SelectItem value="Yearly">Yearly</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex gap-3 pt-4">
+                    <Button 
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setEditingMember(null)}
+                      className="flex-1 h-12 rounded-xl font-bold text-slate-600 hover:bg-slate-100"
+                    >
+                      Cancel
+                    </Button>
+                    <Button 
+                      type="submit"
+                      disabled={isUpdating}
+                      className="flex-1 h-12 rounded-xl bg-slate-900 text-white font-bold shadow-lg hover:shadow-slate-200 transition-all"
+                    >
+                      {isUpdating ? "Saving..." : "Save Changes"}
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}

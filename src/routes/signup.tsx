@@ -1,0 +1,481 @@
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { motion } from "framer-motion";
+import { ArrowRight, Building2, Mail, MapPin, Phone, Sparkles, Loader2, Check, ChevronsUpDown, Lock } from "lucide-react";
+import { Navbar } from "@/components/Navbar";
+import { Footer } from "@/components/Footer";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
+import { supabase } from "@/supabase";
+import { toast } from "sonner";
+import { useState, useRef, useEffect } from "react";
+
+const signupSchema = z.object({
+  gymName: z.string().min(2, "Gym name must be at least 2 characters"),
+  city: z.string().min(2, "City must be at least 2 characters"),
+  email: z.string().email("Please enter a valid email address"),
+  mobile: z.string().regex(/^[0-9]{10}$/, "Please enter a valid 10-digit mobile number"),
+  password: z.string().min(6, "Password must be at least 6 characters"),
+});
+
+const loginSchema = z.object({
+  identifier: z.string().min(1, "Email or Mobile Number is required"),
+  password: z.string().min(1, "Password is required"),
+});
+
+type SignupFormValues = z.infer<typeof signupSchema>;
+type LoginFormValues = z.infer<typeof loginSchema>;
+
+const INDIAN_CITIES = [
+  "Mumbai", "Delhi", "Bangalore", "Hyderabad", "Ahmedabad", "Chennai", "Kolkata", "Surat", 
+  "Pune", "Jaipur", "Lucknow", "Kanpur", "Nagpur", "Indore", "Thane", "Bhopal", 
+  "Visakhapatnam", "Pimpri-Chinchwad", "Patna", "Vadodara", "Ghaziabad", "Ludhiana", 
+  "Agra", "Nashik", "Faridabad", "Meerut", "Rajkot", "Kalyan-Dombivli", "Vasai-Virar", 
+  "Varanasi", "Srinagar", "Aurangabad", "Dhanbad", "Amritsar", "Navi Mumbai", 
+  "Allahabad", "Ranchi", "Howrah", "Jabalpur", "Gwalior", "Vijayawada", "Jodhpur", 
+  "Madurai", "Raipur", "Kota", "Guwahati", "Chandigarh", "Solapur", "Hubli-Dharwad", 
+  "Bareilly", "Moradabad", "Mysore", "Gurgaon", "Aligarh", "Jalandhar", "Tiruchirappalli", 
+  "Bhubaneswar", "Salem", "Mira-Bhayandar", "Warangal", "Guntur", "Bhiwandi", 
+  "Saharanpur", "Gorakhpur", "Bikaner", "Amravati", "Noida", "Jamshedpur", "Bhilai", 
+  "Cuttack", "Firozabad", "Kochi", "Nellore", "Bhavnagar", "Dehradun", "Durgapur", 
+  "Asansol", "Rourkela", "Nanded", "Kolhapur", "Ajmer", "Gulbarga", "Jamnagar", 
+  "Ujjain", "Loni", "Siliguri", "Jhansi", "Ulhasnagar", "Nellore", "Jammu", 
+  "Sangli-Miraj & Kupwad", "Belgaum", "Mangalore", "Ambattur", "Tirunelveli", 
+  "Malegaon", "Gaya", "Jalgaon", "Udaipur", "Maheshtala"
+].sort();
+
+export const Route = createFileRoute("/signup")({
+  head: () => ({
+    meta: [
+      { title: "Join Gymphony — Start Your Free Trial" },
+      {
+        name: "description",
+        content: "Create your gym account on Gymphony and start growing today.",
+      },
+    ],
+  }),
+  component: SignupPage,
+});
+
+function SignupPage() {
+  const navigate = useNavigate();
+  const [isLoading, setIsLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<"login" | "signup">("signup");
+  const authControllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        navigate({ to: "/dashboard", replace: true });
+      }
+    };
+    checkSession();
+
+    return () => {
+      if (authControllerRef.current) {
+        authControllerRef.current.abort();
+      }
+    };
+  }, [navigate]);
+
+  const signupForm = useForm<SignupFormValues>({
+    resolver: zodResolver(signupSchema),
+    defaultValues: {
+      gymName: "",
+      city: "",
+      email: "",
+      mobile: "",
+      password: "",
+    },
+  });
+
+  const loginForm = useForm<LoginFormValues>({
+    resolver: zodResolver(loginSchema),
+    defaultValues: {
+      email: "",
+      password: "",
+    },
+  });
+
+  const [cityOpen, setCityOpen] = useState(false);
+
+  const onSignupSubmit = async (data: SignupFormValues) => {
+    if (authControllerRef.current) {
+      authControllerRef.current.abort();
+    }
+    authControllerRef.current = new AbortController();
+
+    setIsLoading(true);
+    try {
+      // 1. Sign up user with email/password
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+      });
+
+      if (authError) throw authError;
+
+      // 2. Insert gym profile
+      const { error: profileError } = await supabase.from("gym_profiles").insert([
+        {
+          id: authData.user?.id, // Link profile to auth user
+          gym_name: data.gymName,
+          city: data.city,
+          email: data.email,
+          mobile_number: data.mobile,
+        },
+      ]).abortSignal(authControllerRef.current.signal);
+
+      if (profileError) {
+        // Silent Abort: Ignore AbortError or Lock broken
+        if (
+          profileError.name === 'AbortError' || 
+          profileError.message?.includes('abort') || 
+          profileError.message?.includes('Lock broken')
+        ) {
+          return;
+        }
+        throw profileError;
+      }
+
+      toast.success("✅ Account created and gym profile setup successfully!");
+      signupForm.reset();
+      setTimeout(() => {
+        navigate({ to: "/dashboard", replace: true });
+      }, 500);
+    } catch (error: any) {
+      // Silent error for aborts
+      if (
+        error.name === 'AbortError' || 
+        error.message?.includes('abort') || 
+        error.message?.includes('Lock broken')
+      ) {
+        console.warn('Silent fetch error in onSignupSubmit:', error);
+        return;
+      }
+      console.warn("Signup error:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const onLoginSubmit = async (data: LoginFormValues) => {
+    if (authControllerRef.current) {
+      authControllerRef.current.abort();
+    }
+    authControllerRef.current = new AbortController();
+
+    setIsLoading(true);
+    try {
+      let loginEmail = data.identifier;
+
+      // Check if the input is a 10-digit mobile number
+      if (/^[0-9]{10}$/.test(data.identifier)) {
+        console.log("Supabase: Mobile number detected, looking up email...");
+        const { data: profile, error: profileError } = await supabase
+          .from("gym_profiles")
+          .select("email")
+          .eq("mobile_number", data.identifier)
+          .single()
+          .abortSignal(authControllerRef.current.signal);
+
+        if (profileError || !profile) {
+          // Silent Abort: Ignore AbortError or Lock broken
+          if (
+            profileError?.name === 'AbortError' || 
+            profileError?.message?.includes('abort') || 
+            profileError?.message?.includes('Lock broken')
+          ) {
+            return;
+          }
+          throw new Error("No gym profile found with this mobile number");
+        }
+        loginEmail = profile.email;
+        console.log("Supabase: Email found for mobile number:", loginEmail);
+      }
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password: data.password,
+      });
+
+      if (error) throw error;
+
+      toast.success("✅ Logged in successfully!");
+      loginForm.reset();
+      
+      setTimeout(() => {
+        navigate({ to: "/dashboard", replace: true });
+      }, 500);
+    } catch (error: any) {
+      // Silent error for aborts
+      if (
+        error.name === 'AbortError' || 
+        error.message?.includes('abort') || 
+        error.message?.includes('Lock broken')
+      ) {
+        console.warn('Silent fetch error in onLoginSubmit:', error);
+        return;
+      }
+      console.warn("Login error:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background text-foreground flex flex-col">
+      <Navbar />
+      
+      <main className="flex-grow relative flex items-center justify-center px-6 py-24 md:py-32 overflow-hidden">
+        {/* Background orbs for glassmorphism effect */}
+        <div className="glow-orb -top-20 left-1/4 h-72 w-72 bg-primary-glow opacity-30" />
+        <div className="glow-orb bottom-20 right-1/4 h-96 w-96 bg-primary opacity-20" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_color-mix(in_oklab,_var(--color-primary-glow)_10%,_transparent),_transparent_70%)]" />
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="relative w-full max-w-lg"
+        >
+          {/* Form Container with Glassmorphism */}
+          <div className="relative overflow-hidden rounded-[2.5rem] border border-white/10 bg-white/5 p-8 md:p-12 shadow-2xl backdrop-blur-xl">
+            {/* Inner glow effect */}
+            <div className="absolute -top-24 -right-24 h-48 w-48 rounded-full bg-primary/20 blur-3xl" />
+            
+            <div className="relative space-y-8">
+              <div className="text-center space-y-4">
+                <motion.div 
+                  initial={{ scale: 0.9 }}
+                  animate={{ scale: 1 }}
+                  className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/10 px-4 py-1.5 text-xs font-medium text-primary backdrop-blur"
+                >
+                  <Sparkles className="h-3.5 w-3.5" />
+                  <span>Join the future of gym management</span>
+                </motion.div>
+                
+                <h1 className="font-display text-4xl font-bold tracking-tight md:text-5xl">
+                  {activeTab === "signup" ? (
+                    <>Create <span className="text-gradient-brand">My Gym</span></>
+                  ) : (
+                    <>Welcome <span className="text-gradient-brand">Back</span></>
+                  )}
+                </h1>
+              </div>
+
+              <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+                <TabsList className="grid w-full grid-cols-2 bg-white/5 border border-white/10 p-1 h-12 rounded-xl mb-8">
+                  <TabsTrigger value="signup" className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white">Sign Up</TabsTrigger>
+                  <TabsTrigger value="login" className="rounded-lg data-[state=active]:bg-primary data-[state=active]:text-white">Log In</TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="signup">
+                  <form className="space-y-6" onSubmit={signupForm.handleSubmit(onSignupSubmit)}>
+                    <div className="space-y-4">
+                      <div className="space-y-2 group">
+                        <Label htmlFor="gymName" className="text-sm font-medium text-foreground/80 group-focus-within:text-primary transition-colors">Gym Name</Label>
+                        <div className="relative">
+                          <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                          <Input
+                            id="gymName"
+                            {...signupForm.register("gymName")}
+                            placeholder="e.g. Iron Paradise"
+                            className={`h-12 pl-11 bg-white/5 border-white/10 focus:border-primary/50 focus:ring-primary/20 transition-all rounded-xl ${signupForm.formState.errors.gymName ? 'border-red-500' : ''}`}
+                          />
+                        </div>
+                        {signupForm.formState.errors.gymName && <p className="text-xs text-red-500">{signupForm.formState.errors.gymName.message}</p>}
+                      </div>
+
+                      <div className="space-y-2 group">
+                        <Label htmlFor="city" className="text-sm font-medium text-foreground/80 group-focus-within:text-primary transition-colors">City</Label>
+                        <div className="relative">
+                          <Controller
+                            name="city"
+                            control={signupForm.control}
+                            render={({ field }) => (
+                              <Popover open={cityOpen} onOpenChange={setCityOpen}>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    role="combobox"
+                                    className={cn(
+                                      "w-full h-12 pl-11 justify-between bg-white/5 border-white/10 hover:bg-white/10 hover:text-foreground text-left font-normal rounded-xl transition-all",
+                                      !field.value && "text-muted-foreground",
+                                      signupForm.formState.errors.city && "border-red-500"
+                                    )}
+                                  >
+                                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                                    {field.value || "Select city..."}
+                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0 bg-slate-900 border-white/10 backdrop-blur-xl">
+                                  <Command className="bg-transparent">
+                                    <CommandInput placeholder="Search city..." className="h-10 text-white" />
+                                    <CommandList className="max-h-60 overflow-y-auto">
+                                      <CommandEmpty className="text-white/60">No city found.</CommandEmpty>
+                                      <CommandGroup className="text-white">
+                                        {INDIAN_CITIES.map((city) => (
+                                          <CommandItem
+                                            key={city}
+                                            value={city}
+                                            onSelect={(val) => {
+                                              signupForm.setValue("city", val, { shouldValidate: true });
+                                              setCityOpen(false);
+                                            }}
+                                            className="text-white hover:bg-white/10 cursor-pointer"
+                                          >
+                                            <Check className={cn("mr-2 h-4 w-4", field.value === city ? "opacity-100" : "opacity-0")} />
+                                            {city}
+                                          </CommandItem>
+                                        ))}
+                                      </CommandGroup>
+                                    </CommandList>
+                                  </Command>
+                                </PopoverContent>
+                              </Popover>
+                            )}
+                          />
+                        </div>
+                        {signupForm.formState.errors.city && <p className="text-xs text-red-500">{signupForm.formState.errors.city.message}</p>}
+                      </div>
+
+                      <div className="space-y-2 group">
+                        <Label htmlFor="email" className="text-sm font-medium text-foreground/80 group-focus-within:text-primary transition-colors">Email Address</Label>
+                        <div className="relative">
+                          <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                          <Input
+                            id="email"
+                            type="email"
+                            {...signupForm.register("email")}
+                            placeholder="owner@yourgym.com"
+                            className={`h-12 pl-11 bg-white/5 border-white/10 focus:border-primary/50 focus:ring-primary/20 transition-all rounded-xl ${signupForm.formState.errors.email ? 'border-red-500' : ''}`}
+                          />
+                        </div>
+                        {signupForm.formState.errors.email && <p className="text-xs text-red-500">{signupForm.formState.errors.email.message}</p>}
+                      </div>
+
+                      <div className="space-y-2 group">
+                        <Label htmlFor="mobile" className="text-sm font-medium text-foreground/80 group-focus-within:text-primary transition-colors">Mobile Number</Label>
+                        <div className="relative">
+                          <Phone className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                          <Input
+                            id="mobile"
+                            type="tel"
+                            {...signupForm.register("mobile")}
+                            placeholder="e.g. 9876543210"
+                            className={`h-12 pl-11 bg-white/5 border-white/10 focus:border-primary/50 focus:ring-primary/20 transition-all rounded-xl ${signupForm.formState.errors.mobile ? 'border-red-500' : ''}`}
+                          />
+                        </div>
+                        {signupForm.formState.errors.mobile && <p className="text-xs text-red-500">{signupForm.formState.errors.mobile.message}</p>}
+                      </div>
+
+                      <div className="space-y-2 group">
+                        <Label htmlFor="password-signup" className="text-sm font-medium text-foreground/80 group-focus-within:text-primary transition-colors">Password</Label>
+                        <div className="relative">
+                          <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                          <Input
+                            id="password-signup"
+                            type="password"
+                            {...signupForm.register("password")}
+                            placeholder="••••••••"
+                            className={`h-12 pl-11 bg-white/5 border-white/10 focus:border-primary/50 focus:ring-primary/20 transition-all rounded-xl ${signupForm.formState.errors.password ? 'border-red-500' : ''}`}
+                          />
+                        </div>
+                        {signupForm.formState.errors.password && <p className="text-xs text-red-500">{signupForm.formState.errors.password.message}</p>}
+                      </div>
+                    </div>
+
+                    <Button 
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full h-14 rounded-xl bg-gradient-brand text-primary-foreground font-bold text-lg shadow-glow hover:shadow-primary/40 hover:-translate-y-0.5 transition-all group disabled:opacity-70"
+                    >
+                      {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+                        <>Create My Gym <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" /></>
+                      )}
+                    </Button>
+                  </form>
+                </TabsContent>
+
+                <TabsContent value="login">
+                  <form className="space-y-6" onSubmit={loginForm.handleSubmit(onLoginSubmit)}>
+                    <div className="space-y-4">
+                      <div className="space-y-2 group">
+                        <Label htmlFor="identifier-login" className="text-sm font-medium text-foreground/80 group-focus-within:text-primary transition-colors">Email or Mobile Number</Label>
+                        <div className="relative">
+                          <Mail className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                          <Input
+                            id="identifier-login"
+                            {...loginForm.register("identifier")}
+                            placeholder="e.g. 9876543210 or owner@gym.com"
+                            className={`h-12 pl-11 bg-white/5 border-white/10 focus:border-primary/50 focus:ring-primary/20 transition-all rounded-xl ${loginForm.formState.errors.identifier ? 'border-red-500' : ''}`}
+                          />
+                        </div>
+                        {loginForm.formState.errors.identifier && <p className="text-xs text-red-500">{loginForm.formState.errors.identifier.message}</p>}
+                      </div>
+
+                      <div className="space-y-2 group">
+                        <Label htmlFor="password-login" className="text-sm font-medium text-foreground/80 group-focus-within:text-primary transition-colors">Password</Label>
+                        <div className="relative">
+                          <Lock className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                          <Input
+                            id="password-login"
+                            type="password"
+                            {...loginForm.register("password")}
+                            placeholder="••••••••"
+                            className={`h-12 pl-11 bg-white/5 border-white/10 focus:border-primary/50 focus:ring-primary/20 transition-all rounded-xl ${loginForm.formState.errors.password ? 'border-red-500' : ''}`}
+                          />
+                        </div>
+                        {loginForm.formState.errors.password && <p className="text-xs text-red-500">{loginForm.formState.errors.password.message}</p>}
+                      </div>
+                    </div>
+
+                    <Button 
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full h-14 rounded-xl bg-gradient-brand text-primary-foreground font-bold text-lg shadow-glow hover:shadow-primary/40 hover:-translate-y-0.5 transition-all group disabled:opacity-70"
+                    >
+                      {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : (
+                        <>Log In <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" /></>
+                      )}
+                    </Button>
+                  </form>
+                </TabsContent>
+              </Tabs>
+
+              <p className="text-center text-xs text-muted-foreground">
+                By continuing, you agree to our{" "}
+                <Link to="#" className="underline hover:text-primary">Terms of Service</Link>
+                {" "}and{" "}
+                <Link to="#" className="underline hover:text-primary">Privacy Policy</Link>.
+              </p>
+            </div>
+          </div>
+        </motion.div>
+      </main>
+
+      <Footer />
+    </div>
+  );
+}
