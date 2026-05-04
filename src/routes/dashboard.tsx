@@ -53,6 +53,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { supabase, supabaseUrl } from "@/supabase";
 import { initiatePhonePePayment, finalizeUpgrade as finalizePhonePeUpgrade } from "@/lib/phonepe";
 import { hasAccess, FeatureName, LIMITS } from "@/lib/permissions";
+import { getGymInitials } from "@/lib/utils";
 import { MembersList } from "@/components/MembersList";
 import { KioskMode } from "@/components/KioskMode";
 import { FeatureLock } from "@/components/FeatureLock";
@@ -1373,17 +1374,10 @@ function DashboardPage() {
                 <div className="h-full w-full rounded-full bg-slate-950 flex items-center justify-center overflow-hidden">
                   {gymSettings?.logo_url ? (
                     <img src={gymSettings.logo_url} alt="Gym Logo" className="w-full h-full object-cover" />
+                  ) : gymSettings?.gym_name ? (
+                    <span className="text-white text-xs font-bold">{getGymInitials(gymSettings.gym_name)}</span>
                   ) : (
-                    <span className="text-white text-xs font-bold">
-                      {gymSettings?.gym_name
-                        ? (() => {
-                            const words = gymSettings.gym_name.trim().split(/\s+/);
-                            return words.length >= 2
-                              ? (words[0][0] + words[1][0]).toUpperCase()
-                              : gymSettings.gym_name.slice(0, 2).toUpperCase();
-                          })()
-                        : <Users className="h-5 w-5 text-white" />}
-                    </span>
+                    <Users className="h-5 w-5 text-white" />
                   )}
                 </div>
               </button>

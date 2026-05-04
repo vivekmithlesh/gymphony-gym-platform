@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import { supabase } from "@/supabase";
 import { initiatePhonePePayment, finalizeUpgrade } from "@/lib/phonepe";
 import { hasAccess } from "@/lib/permissions";
+import { getGymInitials } from "@/lib/utils";
 
 export function SettingsView({ initialCategory = "Gym Profile" }: { initialCategory?: string }) {
   const [activeCategory, setActiveCategory] = useState(initialCategory);
@@ -415,13 +416,6 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
     }
   };
 
-  const getGymInitials = (name: string) => {
-    if (!name?.trim()) return "G";
-    const words = name.trim().split(/\s+/);
-    if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
-    return name.slice(0, 2).toUpperCase();
-  };
-
   const handleLogoClick = () => {
     if (!isUploadingLogo) fileInputRef.current?.click();
   };
@@ -430,15 +424,20 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
     const file = event.target.files?.[0];
     if (!file || !currentUserId) return;
 
-    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-    if (!validTypes.includes(file.type)) {
+    const mimeToExt: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/gif": "gif",
+    };
+    const ext = mimeToExt[file.type];
+    if (!ext) {
       toast.error("Please select a valid image file (JPG, PNG, WebP, or GIF).");
       return;
     }
 
     setIsUploadingLogo(true);
     try {
-      const ext = file.name.split(".").pop() || "jpg";
       const filePath = `${currentUserId}/logo.${ext}`;
 
       const { error: uploadError } = await supabase.storage
