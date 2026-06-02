@@ -36,6 +36,7 @@ import { Badge } from "@/components/ui/badge";
 import { MemberQRCard } from "@/components/MemberQRCard";
 import { MemberActivePlans } from "@/components/MemberActivePlans";
 import { MemberAIChat } from "@/components/MemberAIChat";
+import { MemberWallCheckIn } from "@/components/MemberWallCheckIn";
 import { MemberPurchaseHistory } from "@/components/MemberPurchaseHistory";
 import { ProfileSettings } from "@/components/ProfileSettings";
 import { CityLeaderboard } from "@/components/CityLeaderboard";
@@ -99,6 +100,7 @@ export default function MemberDashboard() {
   const [gymStats, setGymStats] = useState<{ rank: number; totalCalories: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [todayCalories, setTodayCalories] = useState(0);
+  const [checkedInToday, setCheckedInToday] = useState(false);
   const [totalGymCalories, setTotalGymCalories] = useState(0);
   const [nextSession, setNextSession] = useState("06:30 PM");
   const [selectedActivity, setSelectedActivity] = useState(activityOptions[0]);
@@ -306,6 +308,19 @@ export default function MemberDashboard() {
     } catch (err) { console.error("Error in fetchTodayCalories:", err); }
   }, []);
 
+  // Has this member already recorded attendance today? (Wall QR or owner kiosk.)
+  const fetchTodayCheckin = useCallback(async (memberId: string) => {
+    const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
+    try {
+      const { data, error } = await supabase.from("check_ins").select("id")
+        .eq("member_id", memberId)
+        .gte("check_in_time", startOfDay.toISOString())
+        .limit(1);
+      if (error) return;
+      setCheckedInToday((data || []).length > 0);
+    } catch (err) { console.error("Error in fetchTodayCheckin:", err); }
+  }, []);
+
   const fetchGymPlans = useCallback(async (gymId: string) => {
     try {
       const { data: plansData, error: plansError } = await supabase.from("gym_plans").select("*").eq("gym_id", gymId);
@@ -380,7 +395,7 @@ export default function MemberDashboard() {
           setShowMobilePrompt(true);
         }
 
-        await Promise.all([fetchTodayCalories(user.id), fetchNotifications(user.id)]);
+        await Promise.all([fetchTodayCalories(user.id), fetchNotifications(user.id), fetchTodayCheckin(user.id)]);
         if (resolvedGymId) await refreshGymContext(resolvedGymId, user.id);
       } catch (error) {
         console.error("Dashboard loading error:", error);
@@ -427,6 +442,12 @@ export default function MemberDashboard() {
     // Notifications / activity feed update live.
     channel.on("postgres_changes", { event: "*", schema: "public", table: "activity_log", filter: `member_id=eq.${memberId}` }, () => fetchNotifications(memberId));
 
+    // Wall QR / kiosk attendance — instantly flip "checked in today" without a refresh.
+    channel.on("postgres_changes", { event: "INSERT", schema: "public", table: "check_ins", filter: `member_id=eq.${memberId}` }, () => {
+      setCheckedInToday(true);
+      fetchTodayCheckin(memberId);
+    });
+
     // Owner edits to the gym (name, location, hours) reflect live for the member.
     if (gymInfo?.id) {
       channel.on("postgres_changes", { event: "UPDATE", schema: "public", table: "gym_settings", filter: `id=eq.${gymInfo.id}` }, (payload) => {
@@ -436,7 +457,7 @@ export default function MemberDashboard() {
 
     channel.subscribe((status) => { if (status === "SUBSCRIBED") setIsRealtimeConnected(true); });
     return () => { supabase.removeChannel(channel); };
-  }, [member?.id, member?.gym_id, gymInfo?.id, fetchTodayCalories, fetchTotalGymCalories, fetchNotifications]);
+  }, [member?.id, member?.gym_id, gymInfo?.id, fetchTodayCalories, fetchTotalGymCalories, fetchNotifications, fetchTodayCheckin]);
 
   const handleFinishSession = async () => {
     const { data: profile } = await supabase.from("profiles").select("gym_id").eq("id", member?.id).maybeSingle();
@@ -762,6 +783,32 @@ export default function MemberDashboard() {
                           </CardContent>
                         </Card>
                       )}
+                      {/* Wall QR check-in — scan the gym's printed code to mark attendance */}
+                      <Card className={checkedInToday ? "border-emerald-500/40 bg-emerald-500/5" : ""}>
+                        <CardContent className="flex flex-col items-center justify-between gap-4 py-5 sm:flex-row">
+                          <div className="flex items-center gap-3">
+                            <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${checkedInToday ? "bg-emerald-500/15 text-emerald-500" : "bg-violet-500/15 text-violet-500"}`}>
+                              {checkedInToday ? <CheckCircle2 className="h-6 w-6" /> : <QrCode className="h-6 w-6" />}
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold">
+                                {checkedInToday ? "You're checked in today 🎉" : "Not checked in yet"}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {checkedInToday
+                                  ? "Attendance recorded for today."
+                                  : "Scan the gym's wall QR to mark today's attendance."}
+                              </p>
+                            </div>
+                          </div>
+                          <MemberWallCheckIn
+                            memberId={member.id}
+                            memberName={member.full_name ?? undefined}
+                            onCheckedIn={() => { setCheckedInToday(true); fetchTodayCheckin(member.id); }}
+                          />
+                        </CardContent>
+                      </Card>
+
                       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                         <Card>
                           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">

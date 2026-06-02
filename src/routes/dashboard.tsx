@@ -59,6 +59,7 @@ import { hasAccess, FeatureName, LIMITS } from "@/lib/permissions";
 import { InternationalPhoneInput } from "@/components/InternationalPhoneInput";
 import { MembersList } from "@/components/MembersList";
 import { KioskMode } from "@/components/KioskMode";
+import { GymWallQRCode } from "@/components/GymWallQRCode";
 import { FeatureLock } from "@/components/FeatureLock";
 import RetentionWidget from "@/components/RetentionWidget";
 import WhatsAppBotWidget from "@/components/WhatsAppBotWidget";
@@ -1756,7 +1757,20 @@ function DashboardPage() {
       case "Plans":
         return <SettingsView initialCategory="Billing & Plans" />;
       case "Kiosk Mode":
-        return <KioskMode />;
+        return (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <KioskMode />
+            </div>
+            <div className="lg:col-span-1">
+              <GymWallQRCode
+                gymId={gymSettings?.id}
+                gymName={gymSettings?.gym_name}
+                hasLocation={gymSettings?.latitude != null && gymSettings?.longitude != null}
+              />
+            </div>
+          </div>
+        );
       case "Settings":
         return <SettingsView initialCategory={searchSection || "Gym Profile"} />;
       default:
