@@ -23,6 +23,7 @@ import {
   Zap,
   LocateFixed,
   MapPinned,
+  MapPin,
   Search,
   Navigation2,
   Crosshair,
@@ -219,6 +220,10 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
   // ── Location state ──────────────────────────────────────────────────────────
   const [locationDraft, setLocationDraft] = useState<LocationDraft>({ latitude: null, longitude: null });
   const [locationQuery, setLocationQuery] = useState("");
+  // Editable text mirrors of the coordinates. Kept as strings so an owner can
+  // type intermediate values ("12.", "-") without the field reformatting mid-edit.
+  const [latInput, setLatInput] = useState("");
+  const [lngInput, setLngInput] = useState("");
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const [isSearchingLocation, setIsSearchingLocation] = useState(false);
   const [isSavingLocation, setIsSavingLocation] = useState(false);
@@ -254,10 +259,11 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
   }, []);
 
   useEffect(() => {
-    setLocationDraft({
-      latitude: toFiniteNumber(settings.latitude),
-      longitude: toFiniteNumber(settings.longitude),
-    });
+    const lat = toFiniteNumber(settings.latitude);
+    const lng = toFiniteNumber(settings.longitude);
+    setLocationDraft({ latitude: lat, longitude: lng });
+    setLatInput(lat !== null ? lat.toFixed(6) : "");
+    setLngInput(lng !== null ? lng.toFixed(6) : "");
   }, [settings.latitude, settings.longitude]);
 
   useEffect(() => {
@@ -485,10 +491,39 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
   );
 
   // ── Location ──────────────────────────────────────────────────────────────────
+  // Single funnel for every programmatic update (detect GPS, address search,
+  // map click, pin drag). Keeps the draft, the search box, AND the editable
+  // lat/lng text fields in sync so the pin and the inputs always agree.
   const pickLocation = useCallback((lat: number, lng: number) => {
     setLocationDraft({ latitude: lat, longitude: lng });
     setLocationQuery(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+    setLatInput(lat.toFixed(6));
+    setLngInput(lng.toFixed(6));
   }, []);
+
+  // Manual typing into the lat/lng fields. We update the draft (which moves the
+  // pin) only once the pair forms a valid coordinate, but never reformat the
+  // string the owner is actively editing.
+  const commitManualCoords = useCallback((latStr: string, lngStr: string) => {
+    const lat = Number(latStr);
+    const lng = Number(lngStr);
+    const latOk = latStr.trim() !== "" && Number.isFinite(lat) && lat >= -90 && lat <= 90;
+    const lngOk = lngStr.trim() !== "" && Number.isFinite(lng) && lng >= -180 && lng <= 180;
+    if (latOk && lngOk) {
+      setLocationDraft({ latitude: lat, longitude: lng });
+      setLocationQuery(`${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+    }
+  }, []);
+
+  const handleLatInput = useCallback((value: string) => {
+    setLatInput(value);
+    commitManualCoords(value, lngInput);
+  }, [commitManualCoords, lngInput]);
+
+  const handleLngInput = useCallback((value: string) => {
+    setLngInput(value);
+    commitManualCoords(latInput, value);
+  }, [commitManualCoords, latInput]);
 
   const detectLocation = useCallback(() => {
     if (!navigator.geolocation) { toast.error("GPS not available in this browser."); return; }
@@ -972,7 +1007,7 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
                         </Button>
                         <Button
                           variant="outline"
-                          onClick={() => toast.info("Click anywhere on the map to pin your gym.")}
+                          onClick={() => toast.info("Click to drop the pin, then drag it to fine-tune.")}
                           className="h-12 rounded-2xl border-slate-200 px-5 font-bold"
                         >
                           <MapPinned className="mr-2 h-4 w-4" />
@@ -1068,6 +1103,13 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
                                     <Marker
                                       position={[locationDraft.latitude, locationDraft.longitude]}
                                       icon={pinIcon}
+                                      draggable
+                                      eventHandlers={{
+                                        dragend: (e: { target: { getLatLng: () => { lat: number; lng: number } } }) => {
+                                          const pos = e.target.getLatLng();
+                                          pickLocation(pos.lat, pos.lng);
+                                        },
+                                      }}
                                     >
                                       <Popup>
                                         <div className="space-y-1">
@@ -1086,32 +1128,53 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
                         </div>
                       </div>
 
-                      {/* Coordinates display */}
+                      {/* Coordinates — editable; typing moves the pin, dragging the pin fills these */}
                       <div className="grid gap-4 sm:grid-cols-2">
                         <div className="space-y-2">
                           <Label className="text-slate-600">Latitude</Label>
                           <Input
-                            value={locationDraft.latitude !== null ? locationDraft.latitude.toFixed(6) : ""}
-                            disabled
-                            placeholder="Pick a point on the map"
-                            className="rounded-xl border-slate-200 bg-slate-50 text-slate-900"
+                            inputMode="decimal"
+                            value={latInput}
+                            onChange={(e) => handleLatInput(e.target.value)}
+                            placeholder="e.g. 27.897520"
+                            className="rounded-xl border-slate-200 bg-white text-slate-900"
                           />
                         </div>
                         <div className="space-y-2">
                           <Label className="text-slate-600">Longitude</Label>
                           <Input
-                            value={locationDraft.longitude !== null ? locationDraft.longitude.toFixed(6) : ""}
-                            disabled
-                            placeholder="Pick a point on the map"
-                            className="rounded-xl border-slate-200 bg-slate-50 text-slate-900"
+                            inputMode="decimal"
+                            value={lngInput}
+                            onChange={(e) => handleLngInput(e.target.value)}
+                            placeholder="e.g. 78.088012"
+                            className="rounded-xl border-slate-200 bg-white text-slate-900"
                           />
                         </div>
                       </div>
 
+                      {/* Why this matters — ties the location to Wall QR check-ins */}
+                      {locationDraft.latitude === null || locationDraft.longitude === null ? (
+                        <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                          <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>
+                            <strong>Location not set.</strong> Members can't use Wall QR check-in until you
+                            pin your gym here — it geo-fences check-ins to people physically on-site (within 100&nbsp;m).
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex items-start gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+                          <Crosshair className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>
+                            This location powers <strong>Wall QR check-in</strong>. Members scanning your printed QR
+                            must be within <strong>100&nbsp;m</strong> of this pin to check in.
+                          </span>
+                        </div>
+                      )}
+
                       <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4 md:flex-row md:items-center md:justify-between">
                         <div className="space-y-1">
                           <p className="text-sm font-semibold text-slate-900">Need a quick adjustment?</p>
-                          <p className="text-xs text-muted-foreground">Click anywhere on the map to move the pin.</p>
+                          <p className="text-xs text-muted-foreground">Click the map, drag the pin, or type exact coordinates above.</p>
                         </div>
                         <Button
                           onClick={saveLocation}
