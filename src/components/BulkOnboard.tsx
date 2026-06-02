@@ -59,24 +59,70 @@ const PLAN_FALLBACK = ["Monthly", "Quarterly", "Half-Yearly", "Yearly"];
 
 const rid = () => Math.random().toString(36).slice(2);
 
-// Sample rows used to simulate Excel / image (OCR) extraction when we can't
-// read the file's contents directly in the browser.
-const MOCK_ROWS = (): ParsedRow[] => [
-  { id: rid(), name: "Aarav Sharma", phone: "+919812345670", plan: "Monthly" },
-  { id: rid(), name: "Priya Verma", phone: "+919812345671", plan: "Quarterly" },
-  { id: rid(), name: "Rohit Singh", phone: "9812345672", plan: "Yearly" },
-  { id: rid(), name: "Neha Gupta", phone: "+91 98123 45673", plan: "Monthly" },
-];
+interface RawRow {
+  name: string;
+  phone: string;
+  plan: string;
+}
 
-// Real, lightweight CSV parsing for actual .csv uploads (Name, Phone, Plan).
-const parseCsv = (text: string): ParsedRow[] => {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+const HEADER_ALIASES = {
+  name: ["name", "full name", "fullname", "member", "member name", "membername"],
+  phone: ["phone", "mobile", "number", "phone number", "mobile number", "contact", "whatsapp"],
+  plan: ["plan", "membership", "package", "membership plan", "membershipplan"],
+};
+
+const findIdx = (header: string[], aliases: string[], fallback: number) => {
+  const i = header.findIndex((h) => aliases.includes(h));
+  return i >= 0 ? i : fallback;
+};
+
+// Turn an array-of-arrays (CSV lines / XLSX rows) into Name/Phone/Plan records.
+// Auto-detects a header row and arbitrary column order. NEVER invents data —
+// only what's actually in the document is returned.
+const rowsToRecords = (rows: string[][]): RawRow[] => {
+  const cleaned = rows.filter((r) => r.some((c) => String(c ?? "").trim() !== ""));
+  if (cleaned.length === 0) return [];
+
+  const header = cleaned[0].map((c) => String(c ?? "").toLowerCase().trim());
+  const hasHeader =
+    header.some((c) => HEADER_ALIASES.name.includes(c)) ||
+    header.some((c) => HEADER_ALIASES.phone.includes(c));
+
+  const nameIdx = hasHeader ? findIdx(header, HEADER_ALIASES.name, 0) : 0;
+  const phoneIdx = hasHeader ? findIdx(header, HEADER_ALIASES.phone, 1) : 1;
+  const planIdx = hasHeader ? findIdx(header, HEADER_ALIASES.plan, 2) : 2;
+  const data = hasHeader ? cleaned.slice(1) : cleaned;
+
+  return data
+    .map((cols) => ({
+      name: String(cols[nameIdx] ?? "").trim(),
+      phone: String(cols[phoneIdx] ?? "").trim(),
+      plan: String(cols[planIdx] ?? "").trim(),
+    }))
+    .filter((r) => r.name !== "" || r.phone !== "");
+};
+
+const splitCsvLine = (line: string, delim: string): string[] =>
+  line.split(delim).map((c) => c.replace(/^"|"$/g, "").trim());
+
+// Real CSV parsing (no library needed).
+const parseCsv = (text: string): RawRow[] => {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== "");
   if (lines.length === 0) return [];
-  const start = /name|phone|mobile/i.test(lines[0]) ? 1 : 0; // skip header row
-  return lines.slice(start).map((line) => {
-    const cols = line.split(/[,;\t]/).map((c) => c.trim());
-    return { id: rid(), name: cols[0] || "", phone: cols[1] || "", plan: cols[2] || "Monthly" };
-  });
+  const first = lines[0];
+  const delim = first.includes("\t") ? "\t" : first.includes(";") ? ";" : ",";
+  return rowsToRecords(lines.map((l) => splitCsvLine(l, delim)));
+};
+
+// Real Excel parsing via SheetJS (reads the first sheet).
+const parseXlsx = async (file: File): Promise<RawRow[]> => {
+  const XLSX = await import("xlsx");
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  if (!sheet) return [];
+  const aoa = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, blankrows: false, defval: "" });
+  return rowsToRecords(aoa.map((r) => (Array.isArray(r) ? r.map((c) => String(c ?? "")) : [])));
 };
 
 export function BulkOnboard({ open, onClose, gymId, gymOwnerId, gymName, plans, onComplete }: BulkOnboardProps) {
@@ -87,9 +133,27 @@ export function BulkOnboard({ open, onClose, gymId, gymOwnerId, gymName, plans, 
   const [isSaving, setIsSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
-  const planOptions = plans.length
-    ? Array.from(new Set(plans.map((p) => p.name || p.id).filter(Boolean))) as string[]
-    : PLAN_FALLBACK;
+  // Real plan options for the dropdown (the gym's own plans). Falls back to a
+  // sensible default list only if the gym truly has no plans defined yet.
+  const derivedPlans = Array.from(
+    new Set((plans || []).map((p) => (p.name || p.id || "").trim()).filter(Boolean))
+  ) as string[];
+  const planOptions = derivedPlans.length ? derivedPlans : PLAN_FALLBACK;
+
+  // Match a plan string from the document to one of the gym's real plans
+  // (case-insensitive). Returns "" if it doesn't match — never guesses a value.
+  const canonicalPlan = (p: string) => {
+    const t = (p || "").trim().toLowerCase();
+    if (!t) return "";
+    return planOptions.find((o) => o.toLowerCase() === t) || "";
+  };
+
+  const toParsed = (raw: RawRow): ParsedRow => ({
+    id: rid(),
+    name: raw.name,
+    phone: raw.phone,
+    plan: canonicalPlan(raw.plan),
+  });
 
   const reset = () => {
     setStage("upload");
@@ -103,22 +167,45 @@ export function BulkOnboard({ open, onClose, gymId, gymOwnerId, gymName, plans, 
     onClose();
   };
 
-  // STEP 1 — Upload & "parse".
+  // STEP 1 — Upload & extract REAL data only (CSV or Excel). No fabricated rows.
   const handleFile = async (file: File) => {
     setIsParsing(true);
     try {
-      let parsed: ParsedRow[] = [];
-      if (file.name.toLowerCase().endsWith(".csv") || file.type === "text/csv") {
-        parsed = parseCsv(await file.text());
+      const name = file.name.toLowerCase();
+      let records: RawRow[] = [];
+
+      if (name.endsWith(".csv") || file.type === "text/csv") {
+        records = parseCsv(await file.text());
+      } else if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+        records = await parseXlsx(file);
+      } else if (file.type.startsWith("image/")) {
+        toast.error("Image scanning isn't available yet. Please upload a CSV or Excel file, or add members manually.");
+        return; // never fabricate data
+      } else {
+        toast.error("Unsupported file. Please upload a CSV or Excel (.xlsx) file.");
+        return;
       }
-      // Simulate parsing time for Excel / images (OCR).
-      await new Promise((r) => setTimeout(r, 900));
-      if (parsed.length === 0) parsed = MOCK_ROWS();
+
+      const parsed = records.map(toParsed);
+
+      if (parsed.length === 0) {
+        toast.error("No member data found. Make sure the file has Name and Phone columns.");
+        // Open an empty grid for manual entry — we do not invent rows.
+        setRows([]);
+        setStage("review");
+        return;
+      }
+
       setRows(parsed);
       setStage("review");
+      const missingPlans = parsed.filter((r) => !r.plan).length;
+      toast.success(
+        `Loaded ${parsed.length} member(s)` +
+          (missingPlans > 0 ? ` — pick a plan for ${missingPlans} row(s).` : ".")
+      );
     } catch (err) {
       console.warn("Bulk parse failed:", err);
-      toast.error("Could not read that file. Try a CSV with Name, Phone, Plan columns.");
+      toast.error("Could not read that file. Please try a CSV or Excel (.xlsx) file.");
     } finally {
       setIsParsing(false);
       if (fileRef.current) fileRef.current.value = "";
@@ -130,11 +217,16 @@ export function BulkOnboard({ open, onClose, gymId, gymOwnerId, gymName, plans, 
     setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const removeRow = (id: string) => setRows((prev) => prev.filter((r) => r.id !== id));
   const addRow = () =>
-    setRows((prev) => [...prev, { id: rid(), name: "", phone: "", plan: planOptions[0] || "Monthly" }]);
+    setRows((prev) => [...prev, { id: rid(), name: "", phone: "", plan: "" }]);
 
   const isRowValid = (r: ParsedRow) => {
     const normalized = normalizeToE164Phone(r.phone, "+91");
-    return r.name.trim().length > 0 && !!normalized && isValidInternationalPhone(normalized);
+    return (
+      r.name.trim().length > 0 &&
+      !!normalized &&
+      isValidInternationalPhone(normalized) &&
+      r.plan.trim().length > 0 // owner must pick a real plan — no silent default
+    );
   };
   const validRows = rows.filter(isRowValid);
   const invalidCount = rows.length - validRows.length;
@@ -235,7 +327,7 @@ export function BulkOnboard({ open, onClose, gymId, gymOwnerId, gymName, plans, 
           full_name: r.name.trim(),
           mobile_number: phoneE164,
           phone: phoneE164,
-          membership_plan: r.plan || planOptions[0] || "Monthly",
+          membership_plan: r.plan,
           status: "pending_signup",
           expiry_date: expiry.toISOString(),
           gym_id: gymId,
@@ -393,8 +485,8 @@ export function BulkOnboard({ open, onClose, gymId, gymOwnerId, gymName, plans, 
               }}
             />
             <p className="text-[11px] text-slate-400 mt-4 text-center max-w-md">
-              Tip: a CSV with columns <span className="font-semibold">Name, Phone, Plan</span> is parsed directly.
-              Excel/photos are simulated with sample rows you can edit.
+              Use a <span className="font-semibold">CSV or Excel (.xlsx)</span> file with{" "}
+              <span className="font-semibold">Name, Phone, Plan</span> columns. Only data found in your file is imported.
             </p>
           </div>
         ) : stage === "review" ? (
@@ -449,9 +541,9 @@ export function BulkOnboard({ open, onClose, gymId, gymOwnerId, gymName, plans, 
                           />
                         </td>
                         <td className="px-3 py-2">
-                          <Select value={r.plan} onValueChange={(v) => updateRow(r.id, { plan: v })}>
-                            <SelectTrigger className="h-9 bg-white border-slate-200 rounded-lg text-slate-900">
-                              <SelectValue placeholder="Plan" />
+                          <Select value={r.plan || undefined} onValueChange={(v) => updateRow(r.id, { plan: v })}>
+                            <SelectTrigger className={`h-9 bg-white rounded-lg text-slate-900 ${r.plan ? "border-slate-200" : "border-amber-300"}`}>
+                              <SelectValue placeholder="Select plan" />
                             </SelectTrigger>
                             <SelectContent className="bg-white border-slate-200 text-slate-900">
                               {planOptions.map((p) => (
