@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogClose } from "@/components/ui/dialog";
-import { CalendarDays, Award, Clock, Loader2, Zap, CreditCard, CheckCircle2 } from "lucide-react";
+import { CalendarDays, Award, Clock, Loader2, Zap, CreditCard, CheckCircle2, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "@/supabase";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -38,6 +38,7 @@ export function MemberActivePlans({ memberId }: MemberActivePlansProps) {
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [daysRemaining, setDaysRemaining] = useState<number | null>(null);
   const [showPlansModal, setShowPlansModal] = useState(false);
+  const [planIndex, setPlanIndex] = useState(0);
 
   const fetchProfile = useCallback(async () => {
     try {
@@ -64,7 +65,7 @@ export function MemberActivePlans({ memberId }: MemberActivePlansProps) {
         // Core Logic: Prioritize real data, use fallbacks only if primary is null
         const mergedProfile: MemberProfile = {
           id: memberId,
-          full_name: profileData?.full_name || memberData?.full_name || "Member",
+          full_name: profileData?.full_name || "Member",
           gym_id: finalGymId,
           membership_plan: profileData?.membership_plan || memberData?.membership_plan || "",
           joined_at: profileData?.created_at || profileData?.joined_at || memberData?.joining_date,
@@ -346,6 +347,11 @@ export function MemberActivePlans({ memberId }: MemberActivePlansProps) {
 
   const isPlanActive = (daysRemaining !== null && daysRemaining > 0);
 
+  // Show only the top 3 plans, one at a time via the carousel arrows.
+  const topPlans = gymPlans.slice(0, 3);
+  const safeIndex = topPlans.length ? (((planIndex % topPlans.length) + topPlans.length) % topPlans.length) : 0;
+  const currentPlan = topPlans[safeIndex];
+
   return (
     <Card className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
       <CardHeader className="p-6 pb-2">
@@ -414,51 +420,88 @@ export function MemberActivePlans({ memberId }: MemberActivePlansProps) {
               </div>
             )}
 
-            {gymPlans.length > 0 ? (
-              gymPlans.map((plan) => {
-                const isCurrentPlan = profile?.membership_plan === plan.plan_name && isPlanActive;
-                return (
-                  <div 
-                    key={plan.id} 
-                    className={`p-4 rounded-2xl border transition-all ${
-                      isCurrentPlan 
-                        ? "bg-primary/5 border-primary/20 ring-1 ring-primary/10" 
-                        : "bg-white border-slate-100 hover:border-slate-200 shadow-sm"
-                    }`}> 
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <p className="text-sm font-bold text-slate-900">{plan.plan_name}</p>
-                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{plan.duration_days} Days</p>
-                      </div>
-                      <p className="text-lg font-black text-primary">₹{plan.price}</p>
-                    </div>
-                    
-                    <Button
-                      onClick={() => handlePayFees(plan)}
-                      disabled={isProcessingPayment || isCurrentPlan}
-                      className={`w-full h-11 rounded-xl font-bold transition-all ${
-                        isCurrentPlan 
-                          ? "bg-emerald-500 text-white cursor-default hover:bg-emerald-500" 
-                          : "bg-slate-900 text-white hover:bg-slate-800"
-                      }`}
+            {topPlans.length > 0 && currentPlan ? (
+              <div>
+                <div className="flex items-center gap-2">
+                  {topPlans.length > 1 && (
+                    <button
+                      onClick={() => setPlanIndex((i) => i - 1)}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50"
+                      aria-label="Previous plan"
                     >
-                      {isProcessingPayment ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : isCurrentPlan ? (
-                        <span className="flex items-center gap-2">
-                          <CheckCircle2 className="h-4 w-4" />
-                          Current Active Plan
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-2">
-                          <CreditCard className="h-4 w-4" />
-                          {daysRemaining !== null && daysRemaining <= 0 ? "Renew Now" : "Upgrade / Pay Fees"}
-                        </span>
-                      )}
-                    </Button>
+                      <ChevronLeft className="h-4 w-4" />
+                    </button>
+                  )}
+
+                  {(() => {
+                    const isCurrentPlan = profile?.membership_plan === currentPlan.plan_name && isPlanActive;
+                    return (
+                      <div
+                        className={`flex-1 p-4 rounded-2xl border transition-all ${
+                          isCurrentPlan
+                            ? "bg-primary/5 border-primary/20 ring-1 ring-primary/10"
+                            : "bg-white border-slate-100 shadow-sm"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-3">
+                          <div>
+                            <p className="text-sm font-bold text-slate-900">{currentPlan.plan_name}</p>
+                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{currentPlan.duration_days} Days</p>
+                          </div>
+                          <p className="text-lg font-black text-primary">₹{currentPlan.price}</p>
+                        </div>
+
+                        <Button
+                          onClick={() => handlePayFees(currentPlan)}
+                          disabled={isProcessingPayment || isCurrentPlan}
+                          className={`w-full h-11 rounded-xl font-bold transition-all ${
+                            isCurrentPlan
+                              ? "bg-emerald-500 text-white cursor-default hover:bg-emerald-500"
+                              : "bg-slate-900 text-white hover:bg-slate-800"
+                          }`}
+                        >
+                          {isProcessingPayment ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : isCurrentPlan ? (
+                            <span className="flex items-center gap-2">
+                              <CheckCircle2 className="h-4 w-4" />
+                              Current Active Plan
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-2">
+                              <CreditCard className="h-4 w-4" />
+                              {daysRemaining !== null && daysRemaining <= 0 ? "Renew Now" : "Upgrade / Pay Fees"}
+                            </span>
+                          )}
+                        </Button>
+                      </div>
+                    );
+                  })()}
+
+                  {topPlans.length > 1 && (
+                    <button
+                      onClick={() => setPlanIndex((i) => i + 1)}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-slate-200 text-slate-500 transition-colors hover:bg-slate-50"
+                      aria-label="Next plan"
+                    >
+                      <ChevronRight className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
+
+                {topPlans.length > 1 && (
+                  <div className="mt-3 flex items-center justify-center gap-1.5">
+                    {topPlans.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setPlanIndex(i)}
+                        aria-label={`Go to plan ${i + 1}`}
+                        className={`h-1.5 rounded-full transition-all ${i === safeIndex ? "w-5 bg-primary" : "w-1.5 bg-slate-300"}`}
+                      />
+                    ))}
                   </div>
-                );
-              })
+                )}
+              </div>
             ) : (
               <div className="text-center py-8 bg-slate-50/50 rounded-2xl border border-dashed border-slate-200">
                 {isLoading ? (

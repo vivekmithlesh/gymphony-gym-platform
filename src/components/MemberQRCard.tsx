@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, QrCode as QRCodeIcon } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
 import { toast } from "sonner";
+import { supabase } from "@/supabase";
 
 interface MemberQRCardProps {
   member: {

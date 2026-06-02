@@ -351,6 +351,7 @@ export function MembersList() {
       // Find the price for the member's plan
       const plan = availablePlans.find(p => p.name === member.membership_plan);
       const amount = plan ? plan.price : (member.membership_plan === 'Yearly' ? 12000 : (member.membership_plan === 'Quarterly' ? 4000 : 1500));
+      const newTotal = Number(member.amount_paid || 0) + amount;
 
       // Update member status to 'Active' in profiles (since members is a view)
       const { error: memberError } = await supabase
@@ -397,7 +398,7 @@ export function MembersList() {
       setMembers(prev => prev.map(m => 
         m.id === member.id ? { ...m, status: "Active" } : m
       ));
-      setPaymentMember((prev) => prev && prev.id === member.id ? { ...prev, status: "Active", amount_paid: newTotal } : prev);
+      setPaymentMember((prev: any) => prev && prev.id === member.id ? { ...prev, status: "Active", amount_paid: newTotal } : prev);
 
       window.dispatchEvent(new CustomEvent("member-payment-updated", {
         detail: {
@@ -518,7 +519,7 @@ export function MembersList() {
           ? { ...member, amount_paid: newTotal }
           : member
       ));
-      setPaymentMember(prev => prev ? { ...prev, amount_paid: newTotal } : prev);
+      setPaymentMember((prev: any) => prev ? { ...prev, amount_paid: newTotal } : prev);
 
       // 2. Record activity
       await supabase.from("activity_log").insert({

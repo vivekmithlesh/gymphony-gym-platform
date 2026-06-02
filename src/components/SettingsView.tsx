@@ -695,7 +695,7 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
         const stripe = await loadStripe(STRIPE_KEY);
         if (!stripe) throw new Error("Stripe failed to load.");
         toast.info("Redirecting to Stripe...");
-        setTimeout(() => finalizeUpgrade(), 2000);
+        setTimeout(() => finalizeUpgrade(userId), 2000);
       } catch (err: unknown) {
         toast.error((err as Error).message);
         setIsProcessingBilling(false);

@@ -365,8 +365,8 @@ function SignupPage() {
           .from("gym_profiles")
           .select("email")
           .or(`mobile_number.eq.${normalizedMobile},phone.eq.${normalizedMobile}`)
-          .single()
-          .abortSignal(authControllerRef.current.signal);
+          .abortSignal(authControllerRef.current.signal)
+          .single();
 
         if (profileError || !profile) {
           // Silent Abort: Ignore AbortError or Lock broken
@@ -656,9 +656,9 @@ function SignupPage() {
 
               <p className="text-center text-xs text-muted-foreground">
                 By continuing, you agree to our{" "}
-                <Link to="#" className="underline hover:text-primary">Terms of Service</Link>
+                <a href="#" className="underline hover:text-primary">Terms of Service</a>
                 {" "}and{" "}
-                <Link to="#" className="underline hover:text-primary">Privacy Policy</Link>.
+                <a href="#" className="underline hover:text-primary">Privacy Policy</a>.
               </p>
             </div>
           </div>

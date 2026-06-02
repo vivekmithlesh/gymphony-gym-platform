@@ -27,7 +27,6 @@ import { QRCodeCanvas } from "qrcode.react";
 import { supabase } from "@/supabase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -36,6 +35,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Badge } from "@/components/ui/badge";
 import { MemberQRCard } from "@/components/MemberQRCard";
 import { MemberActivePlans } from "@/components/MemberActivePlans";
+import { MemberAIChat } from "@/components/MemberAIChat";
 import { MemberPurchaseHistory } from "@/components/MemberPurchaseHistory";
 import { ProfileSettings } from "@/components/ProfileSettings";
 import { CityLeaderboard } from "@/components/CityLeaderboard";
@@ -44,6 +44,9 @@ import { InternationalPhoneInput } from "@/components/InternationalPhoneInput";
 import { isValidInternationalPhone, normalizeToE164Phone } from "@/lib/phone";
 import { useRealtimeLeaderboard } from "@/hooks/useRealtimeLeaderboard";
 import { initiatePhonePePayment } from "@/lib/phonepe";
+import { MemberAttendanceTab } from "@/components/MemberAttendanceTab";
+import { MemberNotesTab } from "@/components/MemberNotesTab";
+import { MemberGoalsCard } from "@/components/MemberGoalsCard";
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -64,6 +67,7 @@ interface Member {
 
 interface GymInfo {
   id: string; gym_name: string; opening_time?: string; city?: string; address?: string; gym_owner_id?: string;
+  latitude?: number | null; longitude?: number | null;
 }
 
 interface GymPlan {
@@ -74,25 +78,11 @@ interface Notification {
   id: string; activity_type: string; description: string; is_read: boolean; created_at: string;
 }
 
-type GoalItem = { id: string; label: string; };
-
 const activityOptions = ["Running", "Weightlifting", "Cycling", "HIIT", "HIIT-Box", "Swimming", "Yoga", "Walking"];
 
 const metValues: Record<string, number> = {
   Running: 9.0, Weightlifting: 5.5, Cycling: 7.5, HIIT: 9.0, "HIIT-Box": 9.5, Swimming: 7.5, Yoga: 3.5, Walking: 3.5,
 };
-
-const dietGoals: GoalItem[] = [
-  { id: "diet-protein", label: "Hit 120g protein" },
-  { id: "diet-water", label: "Drink 3L water" },
-  { id: "diet-meal", label: "Keep the post-workout meal clean" },
-];
-
-const exerciseGoals: GoalItem[] = [
-  { id: "exercise-cardio", label: "20 minutes cardio" },
-  { id: "exercise-strength", label: "Complete the strength block" },
-  { id: "exercise-stretch", label: "Finish mobility and stretching" },
-];
 
 const estimateCalories = (activityType: string, durationMinutes: number) => {
   const met = metValues[activityType] || 3.0;
@@ -129,13 +119,6 @@ export default function MemberDashboard() {
   const [isUpdatingMobile, setIsUpdatingMobile] = useState(false);
   const [isUpdatingName, setIsUpdatingName] = useState(false);
   const [activeTab, setActiveTab] = useState("dashboard");
-  const [goalStatus, setGoalStatus] = useState<Record<string, boolean>>(() => {
-    const initialGoals: Record<string, boolean> = {};
-    [...dietGoals, ...exerciseGoals].forEach(goal => {
-      initialGoals[goal.id] = false;
-    });
-    return initialGoals;
-  });
 
   const calculateNextSession = useCallback((gymOpeningTime?: string) => {
     if (gymOpeningTime) {
@@ -175,7 +158,7 @@ export default function MemberDashboard() {
         .eq("member_id", memberId)
         .order("created_at", { ascending: false })
         .limit(10);
-      
+
       if (error) throw error;
       setNotifications(data || []);
       setUnreadNotifications((data || []).filter(n => !n.is_read).length);
@@ -230,7 +213,7 @@ export default function MemberDashboard() {
         .from("profiles")
         .update({ phone: cleanMobile, mobile_number: cleanMobile, full_name: member.full_name || "Member" })
         .eq('id', member.id);
-      
+
       if (profileError) {
         const { error: legacyError } = await supabase
           .from("profiles")
@@ -244,7 +227,7 @@ export default function MemberDashboard() {
       setMobileNumber(cleanMobile);
       localStorage.setItem(`mobile_prompt_dismissed_${member.id}`, "true");
       toast.success("Mobile number saved successfully!");
-      
+
       setTimeout(() => {
         setShowMobilePrompt(false);
         refreshGymContext(member.gym_id || "", member.id);
@@ -281,7 +264,7 @@ export default function MemberDashboard() {
         .from('members')
         .upsert({ id: member.id, full_name: fullName.trim(), email: member.email }, { onConflict: 'id' });
       if (memberError) throw memberError;
-      
+
       toast.success("Profile Updated!", { description: "Your name has been updated successfully.", duration: 3000 });
       setMember((prev) => prev ? ({ ...prev, full_name: fullName.trim() }) : null);
     } catch (err) {
@@ -315,7 +298,8 @@ export default function MemberDashboard() {
     const startOfTomorrow = new Date(startOfDay); startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
     try {
       const { data, error } = await supabase.from("workout_logs").select("calories_burned")
-        .eq("member_id", memberId).gte("created_at", startOfDay.toISOString()).lt("created_at", startOfTomorrow.toISOString());
+        .or(`user_id.eq.${memberId},member_id.eq.${memberId}`)
+        .gte("created_at", startOfDay.toISOString()).lt("created_at", startOfTomorrow.toISOString());
       if (error) return;
       const totalCalories = (data || []).reduce((sum, log) => sum + (Number(log.calories_burned) || 0), 0);
       setTodayCalories(totalCalories);
@@ -346,11 +330,12 @@ export default function MemberDashboard() {
   }, []);
 
   const resolveGymInfo = useCallback(async (gymId: string) => {
-    const { data: gymById } = await supabase.from("gym_settings").select("id, gym_name, opening_time, city, address, gym_owner_id").eq("id", gymId).maybeSingle();
+    const settingsCols = "id, gym_name, opening_time, city, address, gym_owner_id, latitude, longitude";
+    const { data: gymById } = await supabase.from("gym_settings").select(settingsCols).eq("id", gymId).maybeSingle();
     if (gymById) return gymById;
-    const { data: gymByOwner } = await supabase.from("gym_settings").select("id, gym_name, opening_time, city, address, gym_owner_id").eq("gym_owner_id", gymId).maybeSingle();
+    const { data: gymByOwner } = await supabase.from("gym_settings").select(settingsCols).eq("gym_owner_id", gymId).maybeSingle();
     if (gymByOwner) return gymByOwner;
-    const { data: profileData } = await supabase.from("gym_profiles").select("id, gym_name, opening_time, city, address").eq("id", gymId).maybeSingle();
+    const { data: profileData } = await supabase.from("gym_profiles").select("id, gym_name, opening_time, city, address, latitude, longitude").eq("id", gymId).maybeSingle();
     return profileData ?? null;
   }, []);
 
@@ -368,11 +353,14 @@ export default function MemberDashboard() {
     const loadMember = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
+        if (!user) {
+          navigate({ to: "/login" });
+          return;
+        }
 
         const { data: profileData } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
         const { data: memberData } = await supabase.from("members").select("*").eq("id", user.id).maybeSingle();
-        
+
         const resolvedGymId = profileData?.gym_id || memberData?.gym_id || null;
         const resolvedMobile = profileData?.phone || profileData?.mobile_number || profileData?.whatsapp_number || memberData?.phone || "";
 
@@ -394,10 +382,15 @@ export default function MemberDashboard() {
 
         await Promise.all([fetchTodayCalories(user.id), fetchNotifications(user.id)]);
         if (resolvedGymId) await refreshGymContext(resolvedGymId, user.id);
-      } catch (error) { toast.error("Could not load dashboard data"); } finally { setIsLoading(false); }
+      } catch (error) {
+        console.error("Dashboard loading error:", error);
+        toast.error("Could not load dashboard data");
+      } finally {
+        setIsLoading(false);
+      }
     };
     loadMember();
-  }, [fetchTodayCalories, fetchNotifications, refreshGymContext]);
+  }, []);
 
   useEffect(() => {
     const searchGyms = async () => {
@@ -416,18 +409,34 @@ export default function MemberDashboard() {
 
   useEffect(() => {
     if (!member?.id) return;
+    const memberId = member.id;
     const gymId = member.gym_id?.trim();
     const channelId = Math.random().toString(36).substring(7);
 
-    const workoutChannel = supabase.channel(`member-workout-logs-${member.id}-${channelId}`);
-    workoutChannel.on("postgres_changes", { event: "*", schema: "public", table: "workout_logs", filter: `member_id=eq.${member.id}` }, () => {
-      fetchTodayCalories(member.id);
-      if (gymId) fetchTotalGymCalories(gymId);
-    });
+    const channel = supabase.channel(`member-dashboard-${memberId}-${channelId}`);
 
-    workoutChannel.subscribe((status) => { if (status === "SUBSCRIBED") setIsRealtimeConnected(true); });
-    return () => { supabase.removeChannel(workoutChannel); };
-  }, [member?.id, member?.gym_id, fetchTodayCalories, fetchTotalGymCalories]);
+    const refreshWorkouts = () => {
+      fetchTodayCalories(memberId);
+      if (gymId) fetchTotalGymCalories(gymId);
+    };
+
+    // Workout logs may be keyed by user_id (current insert) or member_id (legacy) — watch both.
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "workout_logs", filter: `user_id=eq.${memberId}` }, refreshWorkouts);
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "workout_logs", filter: `member_id=eq.${memberId}` }, refreshWorkouts);
+
+    // Notifications / activity feed update live.
+    channel.on("postgres_changes", { event: "*", schema: "public", table: "activity_log", filter: `member_id=eq.${memberId}` }, () => fetchNotifications(memberId));
+
+    // Owner edits to the gym (name, location, hours) reflect live for the member.
+    if (gymInfo?.id) {
+      channel.on("postgres_changes", { event: "UPDATE", schema: "public", table: "gym_settings", filter: `id=eq.${gymInfo.id}` }, (payload) => {
+        setGymInfo((prev) => prev ? { ...prev, ...(payload.new as Partial<GymInfo>) } : (payload.new as GymInfo));
+      });
+    }
+
+    channel.subscribe((status) => { if (status === "SUBSCRIBED") setIsRealtimeConnected(true); });
+    return () => { supabase.removeChannel(channel); };
+  }, [member?.id, member?.gym_id, gymInfo?.id, fetchTodayCalories, fetchTotalGymCalories, fetchNotifications]);
 
   const handleFinishSession = async () => {
     const { data: profile } = await supabase.from("profiles").select("gym_id").eq("id", member?.id).maybeSingle();
@@ -475,7 +484,7 @@ export default function MemberDashboard() {
         .eq("id", currentGymId);
 
       setShowSuccessAnimation(true);
-      
+
       await Promise.all([
         fetchTodayCalories(member.id),
         fetchGymStats(currentGymId),
@@ -494,23 +503,25 @@ export default function MemberDashboard() {
     }
   };
 
-  const handleBuyPlan = async (plan: any) => {
-     if (!member?.id || !member?.gym_id || !gymInfo?.gym_owner_id) { toast.error("Gym context missing."); return; }
-     setIsProcessingPayment(true);
-     try {
-       await initiatePhonePePayment(plan.price, member.id, async () => {
-         await supabase.from("payments").insert([{ member_id: member.id, gym_id: member.gym_id, gym_owner_id: gymInfo.gym_owner_id, amount: plan.price, plan_name: plan.plan_name, status: "Success", payment_date: new Date().toISOString() }]);
-         const expiryDate = new Date(); expiryDate.setDate(expiryDate.getDate() + (Number(plan.duration_days) || 30));
-         await supabase.from("members").update({ membership_plan: plan.plan_name, status: "Active", expiry_date: expiryDate.toISOString(), joining_date: new Date().toISOString() }).eq("id", member.id);
-         await supabase.from("profiles").update({ status: "Active", subscription_status: "Active" }).eq("id", member.id);
-         toast.success(`Plan ${plan.plan_name} activated successfully!`);
-         setShowPlansModal(false);
-         await refreshGymContext(member.gym_id, member.id);
-       }, setIsProcessingPayment);
-     } catch (err) { toast.error("Payment failed."); } finally { setIsProcessingPayment(false); }
-   };
+  const handleBuyPlan = async (plan: GymPlan) => {
+    if (!member?.id || !member?.gym_id || !gymInfo?.gym_owner_id) { toast.error("Gym context missing."); return; }
+    const gymId = member.gym_id;
+    const ownerId = gymInfo.gym_owner_id;
+    const memberId = member.id;
+    try {
+      await initiatePhonePePayment(plan.price, memberId, async () => {
+        await supabase.from("payments").insert([{ member_id: memberId, gym_id: gymId, gym_owner_id: ownerId, amount: plan.price, plan_name: plan.plan_name, status: "Success", payment_date: new Date().toISOString() }]);
+        const expiryDate = new Date(); expiryDate.setDate(expiryDate.getDate() + (Number(plan.duration_days) || 30));
+        await supabase.from("members").update({ membership_plan: plan.plan_name, status: "Active", expiry_date: expiryDate.toISOString(), joining_date: new Date().toISOString() }).eq("id", memberId);
+        await supabase.from("profiles").update({ status: "Active", subscription_status: "Active" }).eq("id", memberId);
+        toast.success(`Plan ${plan.plan_name} activated successfully!`);
+        setShowPlansModal(false);
+        await refreshGymContext(gymId, memberId);
+      }, setIsProcessingPayment);
+    } catch (err) { toast.error("Payment failed."); } finally { setIsProcessingPayment(false); }
+  };
 
-const handleJoinGym = async (gymId: string) => {
+  const handleJoinGym = async (gymId: string) => {
     if (!member?.id) return;
     setIsSavingGymId(true);
     try {
@@ -524,6 +535,19 @@ const handleJoinGym = async (gymId: string) => {
       setTimeout(() => setShowPlansModal(true), 500);
     } catch (err: any) { toast.error("Failed to join gym."); } finally { setIsSavingGymId(false); }
   };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    navigate({ to: "/login" });
+  };
+
+  const tabs = [
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "leaderboard", label: "Leaderboard", icon: Trophy },
+    { id: "explorer", label: "Explorer", icon: MapIcon },
+    { id: "attendance", label: "Attendance", icon: CalendarCheck2 },
+    { id: "notes", label: "Notes", icon: Dumbbell },
+  ];
 
   if (isLoading) {
     return (
@@ -560,16 +584,27 @@ const handleJoinGym = async (gymId: string) => {
       </AnimatePresence>
 
       <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 bg-white/80 backdrop-blur-sm border-b border-gray-200/80">
-        <div className="flex items-center gap-4">
-          <h1 className="text-xl font-semibold text-gray-800">
-            Hi, {firstName}!
-          </h1>
-          <Badge variant={isRealtimeConnected ? "default" : "destructive"} className="flex items-center gap-1.5">
+        <div className="flex items-center gap-3">
+          <Avatar>
+            <AvatarImage src={member.avatar_url || undefined} alt={member.full_name || "Member"} />
+            <AvatarFallback>{firstName.charAt(0)}</AvatarFallback>
+          </Avatar>
+          <div>
+            <h1 className="text-lg font-semibold text-gray-800 leading-tight">Hi, {firstName}!</h1>
+            <p className="text-xs text-gray-500">
+              {gymInfo?.gym_name ? (
+                <span className="inline-flex items-center gap-1">
+                  <Building2 className="h-3 w-3 text-indigo-500" />{gymInfo.gym_name}
+                </span>
+              ) : membershipName}
+            </p>
+          </div>
+          <Badge variant={isRealtimeConnected ? "default" : "destructive"} className="ml-2 hidden items-center gap-1.5 sm:flex">
             <div className={`w-2 h-2 rounded-full ${isRealtimeConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
             {isRealtimeConnected ? "Live" : "Offline"}
           </Badge>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative rounded-full">
@@ -602,24 +637,19 @@ const handleJoinGym = async (gymId: string) => {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Avatar className="cursor-pointer">
-                <AvatarImage src={member.avatar_url} alt={member.full_name} />
-                <AvatarFallback>{firstName.charAt(0)}</AvatarFallback>
-              </Avatar>
+              <Button variant="ghost" size="icon" className="rounded-full">
+                <Settings className="w-5 h-5" />
+              </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuLabel>My Account</DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => setActiveTab('settings')}>
-                <Settings className="w-4 h-4 mr-2" />
-                <span>Settings</span>
-              </DropdownMenuItem>
-              <DropdownMenuItem>
                 <User className="w-4 h-4 mr-2" />
-                <span>Profile</span>
+                <span>Profile Settings</span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => supabase.auth.signOut().then(() => navigate({ to: "/login" }))}>
+              <DropdownMenuItem onClick={handleLogout}>
                 <LogOut className="w-4 h-4 mr-2" />
                 <span>Log out</span>
               </DropdownMenuItem>
@@ -671,16 +701,12 @@ const handleJoinGym = async (gymId: string) => {
           </div>
         ) : (
           <>
-            <div className="flex mb-6 border-b">
-              { [
-                { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-                { id: 'leaderboard', label: 'Leaderboard', icon: Trophy },
-                { id: 'explorer', label: 'Explorer', icon: MapIcon },
-              ].map(tab => (
+            <div className="flex mb-6 border-b overflow-x-auto">
+              {tabs.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${activeTab === tab.id ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${activeTab === tab.id ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
                 >
                   <tab.icon className="w-4 h-4" />
                   {tab.label}
@@ -697,8 +723,45 @@ const handleJoinGym = async (gymId: string) => {
                 transition={{ duration: 0.2 }}
               >
                 {activeTab === 'dashboard' && (
+                  <div className="space-y-6">
                   <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
                     <div className="space-y-6 lg:col-span-2">
+                      {gymInfo && (
+                        <Card className="border-0 bg-linear-to-r from-indigo-600 to-purple-600 text-white shadow-lg">
+                          <CardContent className="flex items-center justify-between gap-4 p-5">
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white/20">
+                                <Building2 className="h-6 w-6" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-xs uppercase tracking-wide text-white/70">Your Gym</p>
+                                <h3 className="truncate text-xl font-bold leading-tight">{gymInfo.gym_name}</h3>
+                                <p className="flex items-center gap-1 text-sm text-white/80">
+                                  <MapPin className="h-3.5 w-3.5" />
+                                  {gymInfo.address || gymInfo.city || "Location"}
+                                  {gymInfo.latitude != null && gymInfo.longitude != null && (
+                                    <span className="ml-1 rounded-full bg-white/20 px-1.5 py-0.5 text-[10px] font-medium">Located</span>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                              {gymInfo.latitude != null && gymInfo.longitude != null && (
+                                <Button
+                                  variant="secondary"
+                                  className="rounded-xl"
+                                  onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${gymInfo.latitude},${gymInfo.longitude}`, "_blank", "noopener")}
+                                >
+                                  <MapPin className="mr-2 h-4 w-4" /> Directions
+                                </Button>
+                              )}
+                              <Button variant="secondary" className="rounded-xl" onClick={() => setActiveTab('explorer')}>
+                                <MapIcon className="mr-2 h-4 w-4" /> View on map
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )}
                       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
                         <Card>
                           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
@@ -767,52 +830,54 @@ const handleJoinGym = async (gymId: string) => {
                       </Card>
 
                       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                        <Card>
-                          <CardHeader><CardTitle>Diet Goals</CardTitle></CardHeader>
-                          <CardContent className="space-y-2">
-                            {dietGoals.map(goal => (
-                              <div key={goal.id} className="flex items-center space-x-2">
-                                <Checkbox id={goal.id} checked={goalStatus[goal.id]} onCheckedChange={(checked) => setGoalStatus(s => ({ ...s, [goal.id]: !!checked }))} />
-                                <label htmlFor={goal.id} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{goal.label}</label>
-                              </div>
-                            ))}
-                          </CardContent>
-                        </Card>
-                        <Card>
-                          <CardHeader><CardTitle>Exercise Goals</CardTitle></CardHeader>
-                          <CardContent className="space-y-2">
-                            {exerciseGoals.map(goal => (
-                              <div key={goal.id} className="flex items-center space-x-2">
-                                <Checkbox id={goal.id} checked={goalStatus[goal.id]} onCheckedChange={(checked) => setGoalStatus(s => ({ ...s, [goal.id]: !!checked }))} />
-                                <label htmlFor={goal.id} className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">{goal.label}</label>
-                              </div>
-                            ))}
-                          </CardContent>
-                        </Card>
+                        <MemberGoalsCard memberId={member.id} category="diet" title="Diet Goals" />
+                        <MemberGoalsCard memberId={member.id} category="exercise" title="Exercise Goals" />
                       </div>
                     </div>
 
                     <div className="space-y-6">
-                      <MemberQRCard member={member} gymInfo={gymInfo} />
-                      <MemberActivePlans member={member} />
+                      <MemberQRCard member={member} />
                       <MemberPurchaseHistory memberId={member.id} />
                     </div>
                   </div>
+
+                  {/* Subscription + AI Assistant — full-width row, side-by-side on desktop, stacked on mobile */}
+                  <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                    <MemberActivePlans memberId={member.id} />
+                    <MemberAIChat
+                      gymId={gymInfo?.id ?? member.gym_id ?? null}
+                      gymOwnerId={gymInfo?.gym_owner_id ?? null}
+                      memberName={member.full_name ?? null}
+                      memberPhone={member.mobile_number ?? member.phone ?? null}
+                    />
+                  </div>
+                  </div>
                 )}
 
-                {activeTab === 'leaderboard' && <CityLeaderboard city={CITY} currentGymId={member.gym_id} />}
-                {activeTab === 'explorer' && <CityGymExplorer city={CITY} currentUserId={member.id} />}
+                {activeTab === 'leaderboard' && (
+                  <CityLeaderboard city={gymInfo?.city} />
+                )}
+                {activeTab === 'explorer' && (
+                  <CityGymExplorer
+                    onJoinGym={handleJoinGym}
+                    currentUserId={member.id}
+                    currentGymId={gymInfo?.id || member.gym_id}
+                    currentGym={gymInfo ? {
+                      id: gymInfo.id,
+                      gym_name: gymInfo.gym_name,
+                      latitude: gymInfo.latitude ?? null,
+                      longitude: gymInfo.longitude ?? null,
+                      city: gymInfo.city,
+                    } : undefined}
+                  />
+                )}
+                {activeTab === 'attendance' && <MemberAttendanceTab memberId={member.id} />}
+                {activeTab === 'notes' && <MemberNotesTab memberId={member.id} />}
                 {activeTab === 'settings' && (
                   <ProfileSettings
                     member={member}
-                    fullName={fullName}
-                    setFullName={setFullName}
-                    handleUpdateName={handleUpdateName}
-                    isUpdatingName={isUpdatingName}
-                    mobileNumber={mobileNumber}
-                    setMobileNumber={setMobileNumber}
-                    handleSaveMobile={handleSaveMobile}
-                    isUpdatingMobile={isUpdatingMobile}
+                    gymInfo={gymInfo}
+                    onUpdate={(newData) => setMember((prev) => prev ? ({ ...prev, ...newData }) : prev)}
                   />
                 )}
               </motion.div>
@@ -831,9 +896,11 @@ const handleJoinGym = async (gymId: string) => {
           </DialogHeader>
           <div className="space-y-4">
             <InternationalPhoneInput
+              id="mobile-prompt"
+              label="Mobile Number"
               value={mobileNumber}
               onChange={setMobileNumber}
-              defaultCountry="IN"
+              defaultCountryCode="+91"
             />
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={handleSkipMobile}>Skip</Button>
@@ -857,7 +924,7 @@ const handleJoinGym = async (gymId: string) => {
                 <CardHeader>
                   <CardTitle>{plan.plan_name}</CardTitle>
                 </CardHeader>
-                <CardContent className="flex-grow">
+                <CardContent className="grow">
                   <p className="text-3xl font-bold">₹{plan.price}</p>
                   <p className="text-sm text-muted-foreground">for {plan.duration_days} days</p>
                   <ul className="mt-4 space-y-2 text-sm">

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from '@tanstack/react-router';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '@/supabase';
-import { Html5QrcodeScanner } from "html5-qrcode";
+import { Html5Qrcode } from "html5-qrcode";
 import { toast } from "sonner";
 
 interface CheckIn {
@@ -20,9 +20,17 @@ export function KioskMode() {
   const [time, setTime] = useState(new Date());
   const [checkIns, setCheckIns] = useState<CheckIn[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  // Sleek center success/denied overlay shown after each scan, auto-cleared.
+  const [successMember, setSuccessMember] = useState<{ name: string; granted: boolean } | null>(null);
   const navigate = useNavigate();
   const checkInControllerRef = useRef<AbortController | null>(null);
-  const scannerRef = useRef<Html5QrcodeScanner | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  // Ref-based cooldown guard — survives the scanner's mount-time closure so the
+  // debounce actually blocks rapid duplicate scans (a state value would be stale here).
+  const isProcessingRef = useRef(false);
+  const ownerIdRef = useRef<string | null>(null);
+  const gymIdRef = useRef<string | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const timer = setInterval(() => setTime(new Date()), 1000);
@@ -32,17 +40,38 @@ export function KioskMode() {
   useEffect(() => {
     fetchInitialCheckIns();
     startScanner();
-    
-    const setupSubscription = async () => {
-      const channel = supabase
+
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+
+    const setup = async () => {
+      // Resolve the kiosk owner + gym so both the check-in writes and the
+      // realtime subscription are scoped to this gym only.
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const ownerId = session?.user?.id ?? null;
+        ownerIdRef.current = ownerId;
+
+        if (ownerId) {
+          const { data: gym } = await supabase
+            .from('gym_settings')
+            .select('id')
+            .eq('gym_owner_id', ownerId)
+            .maybeSingle();
+          gymIdRef.current = gym?.id ?? null;
+        }
+      } catch (e) {
+        console.warn('Kiosk owner/gym resolution failed:', e);
+      }
+
+      // Subscribe ONLY to this gym's check-ins — no cross-gym triggers.
+      const gymId = gymIdRef.current;
+      channel = supabase
         .channel('kiosk_check_ins')
         .on(
           'postgres_changes',
-          { 
-            event: 'INSERT', 
-            schema: 'public', 
-            table: 'check_ins'
-          },
+          gymId
+            ? { event: 'INSERT', schema: 'public', table: 'check_ins', filter: `gym_id=eq.${gymId}` }
+            : { event: 'INSERT', schema: 'public', table: 'check_ins' },
           async (payload) => {
             // Fetch member details for the new check-in to get the join data
             const { data, error } = await supabase
@@ -57,51 +86,54 @@ export function KioskMode() {
           }
         )
         .subscribe();
-
-      return channel;
     };
 
-    const channelPromise = setupSubscription();
+    setup();
 
     return () => {
       if (scannerRef.current) {
-        scannerRef.current.clear().catch(console.warn);
+        // Html5Qrcode must be stopped before clearing the rendered DOM.
+        scannerRef.current.stop()
+          .then(() => scannerRef.current?.clear())
+          .catch(() => {});
+        scannerRef.current = null;
       }
-      channelPromise.then(channel => {
-        if (channel) supabase.removeChannel(channel);
-      });
+      if (channel) supabase.removeChannel(channel);
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
     };
   }, []);
 
   const startScanner = () => {
-    // Give a small delay to ensure DOM is ready
-    setTimeout(() => {
+    // Small delay to ensure the #reader element is mounted before binding.
+    setTimeout(async () => {
       if (scannerRef.current) return;
 
-      const scanner = new Html5QrcodeScanner(
-        "reader",
-        { 
-          fps: 10, 
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1.0
-        },
-        /* verbose= */ false
-      );
+      try {
+        const html5Qrcode = new Html5Qrcode("reader");
+        scannerRef.current = html5Qrcode;
 
-      scanner.render(
-        async (decodedText) => {
-          handleCheckIn(decodedText);
-        },
-        (error) => {
-          // Silent scan errors
-        }
-      );
-      scannerRef.current = scanner;
+        // Start the live camera feed directly (back camera preferred). The
+        // low-level Html5Qrcode API auto-starts the stream — the higher-level
+        // Scanner hid its permission button behind CSS, leaving the box blank.
+        await html5Qrcode.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+          (decodedText) => { handleCheckIn(decodedText); },
+          () => { /* silent per-frame decode errors */ }
+        );
+      } catch (err) {
+        console.warn("Kiosk camera start failed:", err);
+        toast.error("Could not access camera. Check permissions and reload.");
+        scannerRef.current = null;
+      }
     }, 500);
   };
 
   const handleCheckIn = async (memberId: string) => {
-    if (isProcessing) return;
+    // Ref guard (not state) so the cooldown reliably blocks rapid duplicate
+    // scans even inside the scanner's mount-time callback closure.
+    if (isProcessingRef.current) return;
+    isProcessingRef.current = true;
     setIsProcessing(true);
 
     try {
@@ -109,21 +141,24 @@ export function KioskMode() {
       const { data: member, error: memberError } = await supabase
         .from("members")
         .select("id, full_name, status")
-        .eq("id", memberId)
+        .eq("id", (memberId || "").trim())
         .single();
 
       if (memberError || !member) {
         console.warn("Invalid Member QR Code");
+        toast.error("Invalid QR code — member not found.");
         return;
       }
 
       const accessStatus = (member.status === 'Overdue' || member.status === 'Expired') ? 'denied' : 'granted';
 
-      // 2. Insert into check_ins table
+      // 2. Insert into check_ins table, stamped with gym_id for hard
+      //    multi-tenant isolation (RLS also enforces ownership).
       const { error: checkInError } = await supabase
         .from("check_ins")
         .insert([{
           member_id: member.id,
+          gym_id: gymIdRef.current,
           status: accessStatus,
           check_in_time: new Date().toISOString(),
           created_at: new Date().toISOString()
@@ -131,31 +166,44 @@ export function KioskMode() {
 
       if (checkInError) throw checkInError;
 
-      // 3. Log to activity_log
+      // 3. Log to activity_log, stamped with the kiosk owner so this check-in
+      //    appears on the owner dashboard's Activity Log feed.
       await supabase
         .from("activity_log")
         .insert([
           {
+            gym_owner_id: ownerIdRef.current,
             activity_type: "member",
             description: `${member.full_name} checked in via Kiosk (${accessStatus}).`,
             is_read: false,
           },
         ]);
 
+      // 4. User feedback — toast + sleek center overlay (auto-clears).
       if (accessStatus === 'granted') {
-        toast.success(`Welcome, ${member.full_name}!`);
+        toast.success(`Welcome, ${member.full_name}! Checked in successfully`);
         playBeep(880); // Success beep
       } else {
-        console.warn(`Access Denied: ${member.status} for ${member.full_name}`);
+        toast.error(`Access Denied — ${member.full_name} (${member.status})`);
         playBeep(440); // Error beep
       }
+      showSuccessOverlay(member.full_name, accessStatus === 'granted');
 
     } catch (error: any) {
       console.warn("Kiosk check-in error:", error);
+      toast.error("Check-in failed. Please try again.");
     } finally {
-      // Small cooldown to prevent double scans
-      setTimeout(() => setIsProcessing(false), 2000);
+      setIsProcessing(false);
+      // 4-second cooldown/debounce to prevent the camera spam-logging the
+      // same member many times per second.
+      setTimeout(() => { isProcessingRef.current = false; }, 4000);
     }
+  };
+
+  const showSuccessOverlay = (name: string, granted: boolean) => {
+    if (successTimerRef.current) clearTimeout(successTimerRef.current);
+    setSuccessMember({ name, granted });
+    successTimerRef.current = setTimeout(() => setSuccessMember(null), 3000);
   };
 
   const playBeep = (frequency: number) => {
@@ -211,7 +259,7 @@ export function KioskMode() {
   };
 
   return (
-    <div className="h-screen w-screen bg-gray-900 flex overflow-hidden font-sans text-white">
+    <div className="min-h-screen w-screen bg-gray-900 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden font-sans text-white">
       
       {/* Left Side - Scanner Area */}
       <div className="flex-1 flex flex-col items-center justify-center relative p-8">
@@ -227,12 +275,12 @@ export function KioskMode() {
         </p>
 
         {/* Camera Feed */}
-        <div className="w-[450px] h-[450px] bg-gray-800 rounded-3xl border-4 border-gray-700 relative overflow-hidden shadow-2xl flex items-center justify-center">
+        <div className="w-full max-w-112.5 aspect-square bg-gray-800 rounded-3xl border-4 border-gray-700 relative overflow-hidden shadow-2xl flex items-center justify-center">
           <div id="reader" className="w-full h-full object-cover scale-110"></div>
           <div className="absolute inset-0 border-4 border-purple-500/30 rounded-3xl m-4 pointer-events-none"></div>
           {/* Scanning animation line */}
           <div className="absolute top-0 left-0 w-full h-1 bg-purple-500 shadow-[0_0_15px_#a855f7] animate-[scan_4s_ease-in-out_infinite] pointer-events-none"></div>
-          {isProcessing && (
+          {isProcessing && !successMember && (
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center z-10 backdrop-blur-sm">
               <div className="flex flex-col items-center gap-3">
                 <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
@@ -240,11 +288,36 @@ export function KioskMode() {
               </div>
             </div>
           )}
+
+          <AnimatePresence>
+            {successMember && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.85 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.85 }}
+                className={`absolute inset-0 z-20 flex flex-col items-center justify-center gap-4 backdrop-blur-md ${
+                  successMember.granted ? "bg-green-600/30" : "bg-red-600/30"
+                }`}
+              >
+                <div className={`w-24 h-24 rounded-full flex items-center justify-center text-5xl ${
+                  successMember.granted ? "bg-green-500/30" : "bg-red-500/30"
+                }`}>
+                  {successMember.granted ? "✅" : "❌"}
+                </div>
+                <h3 className="text-3xl font-bold text-white text-center px-6">
+                  {successMember.granted ? `Welcome, ${successMember.name}!` : "Access Denied"}
+                </h3>
+                <p className="text-gray-200 font-medium">
+                  {successMember.granted ? "Checked in successfully" : successMember.name}
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
       {/* Right Side - Status & Logs */}
-      <div className="w-96 bg-gray-800 border-l border-gray-700 p-8 flex flex-col">
+      <div className="w-full lg:w-96 bg-gray-800 border-t lg:border-t-0 lg:border-l border-gray-700 p-8 flex flex-col">
         {/* Live Clock */}
         <div className="mb-12">
           <p className="text-5xl font-light tracking-wider mb-2">
@@ -308,7 +381,7 @@ export function KioskMode() {
           type="button"
           onClick={(e) => {
             e.preventDefault();
-            navigate({ to: '/dashboard' });
+            navigate({ to: '/dashboard', search: { tab: undefined, section: undefined } });
           }}
           className="mt-8 w-full py-3 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-xl text-sm font-semibold transition flex items-center justify-center gap-2"
         >

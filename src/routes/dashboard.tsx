@@ -273,43 +273,50 @@ function DashboardPage() {
       }
 
       setIsGymSettingsLoading(true);
-      
-      // 🔄 Force fresh session refresh to pick up latest gym_id from database
-      console.log("🔄 [Auth Cache] Refreshing Supabase session...");
-      const { data: { session }, error } = await supabase.auth.getSession();
-      
-      if (error) {
-        console.error("❌ [Auth Cache] Session refresh failed:", error);
-        setIsGymSettingsLoading(false);
-        return;
-      }
 
-      if (session?.user?.id) {
-        const userId = session.user.id;
-        console.log("✅ [Auth Cache] Session refreshed. User ID:", userId);
-        
-        setCurrentUserId(userId);
-        
-        // Fetch latest gym settings to verify gym_id in database
-        const { data: gymData, error: gymError } = await supabase
-          .from("gym_settings")
-          .select("id, gym_owner_id, gym_name")
-          .eq("gym_owner_id", userId)
-          .maybeSingle();
+      try {
+        // 🔄 Force fresh session refresh to pick up latest gym_id from database
+        console.log("🔄 [Auth Cache] Refreshing Supabase session...");
+        const { data: { session }, error } = await supabase.auth.getSession();
 
-        if (gymData) {
-          console.log("✅ [Database Sync] Frontend gym_id:", gymData.id);
-          console.log("✅ [Database Sync] Database gym_name:", gymData.gym_name);
-          console.log("✅ [Database Sync] Frontend ↔ Database SYNC VERIFIED ✓");
-        } else if (gymError) {
-          console.warn("⚠️ [Database Sync] Gym settings fetch error:", gymError);
-        } else {
-          console.warn("⚠️ [Database Sync] No gym settings found for user:", userId);
+        if (error) {
+          console.error("❌ [Auth Cache] Session refresh failed:", error);
+          setIsGymSettingsLoading(false);
+          return;
         }
-        
-        fetchGymSettings(userId);
-      } else {
-        console.warn("⚠️ [Auth Cache] No active session found");
+
+        if (session?.user?.id) {
+          const userId = session.user.id;
+          console.log("✅ [Auth Cache] Session refreshed. User ID:", userId);
+
+          setCurrentUserId(userId);
+
+          // Fetch latest gym settings to verify gym_id in database
+          const { data: gymData, error: gymError } = await supabase
+            .from("gym_settings")
+            .select("id, gym_owner_id, gym_name")
+            .eq("gym_owner_id", userId)
+            .maybeSingle();
+
+          if (gymData) {
+            console.log("✅ [Database Sync] Frontend gym_id:", gymData.id);
+            console.log("✅ [Database Sync] Database gym_name:", gymData.gym_name);
+            console.log("✅ [Database Sync] Frontend ↔ Database SYNC VERIFIED ✓");
+          } else if (gymError) {
+            console.warn("⚠️ [Database Sync] Gym settings fetch error:", gymError);
+          } else {
+            console.warn("⚠️ [Database Sync] No gym settings found for user:", userId);
+          }
+
+          fetchGymSettings(userId);
+        } else {
+          console.warn("⚠️ [Auth Cache] No active session found");
+          setIsGymSettingsLoading(false);
+        }
+      } catch (err) {
+        // Network/SDK rejection — prevent an unhandled promise rejection and a
+        // dashboard stuck on the loading screen if getSession() throws.
+        console.error("❌ [Auth Cache] Critical exception during init:", err);
         setIsGymSettingsLoading(false);
       }
     };
@@ -453,6 +460,10 @@ function DashboardPage() {
   const [isScanningMember, setIsScanningMember] = useState(false);
   const [isLinkingMember, setIsLinkingMember] = useState(false);
   const memberQRScannerRef = useRef<Html5QrcodeScanner | null>(null);
+
+  // ✅ Check-in (Scan QR) scanner state
+  const [isCheckingIn, setIsCheckingIn] = useState(false);
+  const checkInScannerRef = useRef<Html5QrcodeScanner | null>(null);
 
   const fetchNotifications = useCallback(async () => {
     if (!currentUserId || dashboardFatalErrorRef.current) {
@@ -617,11 +628,21 @@ function DashboardPage() {
   const fetchLiveMemberCount = useCallback(async () => {
     if (!currentUserId || dashboardFatalErrorRef.current) return;
     try {
+      const ownerGymId = gymSettings?.id;
       const twoHoursAgo = new Date(Date.now() - 120 * 60 * 1000).toISOString();
-      const { count, error } = await supabase
+
+      let query = supabase
         .from("check_ins")
         .select("*", { count: 'exact', head: true })
         .gte("created_at", twoHoursAgo);
+
+      // Explicitly scope the live count to this gym for code-level visibility
+      // and double safety (RLS already restricts rows to the owner's gym).
+      if (ownerGymId) {
+        query = query.eq("gym_id", ownerGymId);
+      }
+
+      const { count, error } = await query;
 
       if (error) {
         markDashboardFatalError("live member count query failed", error);
@@ -632,7 +653,7 @@ function DashboardPage() {
     } catch (err) {
       console.warn("Error fetching live member count:", err);
     }
-  }, [currentUserId, markDashboardFatalError]);
+  }, [currentUserId, gymSettings?.id, markDashboardFatalError]);
 
   const fetchMembersCounts = useCallback(async () => {
     if (!currentUserId || dashboardFatalErrorRef.current || isFetchingStatsRef.current) {
@@ -832,7 +853,7 @@ function DashboardPage() {
         .select("description, created_at, activity_type")
         .eq('gym_owner_id', currentUserId)
         .order("created_at", { ascending: false })
-        .limit(10);
+        .limit(5);
       
       console.log("Dashboard Data (Recent Activities):", data);
             if (error) {
@@ -908,7 +929,7 @@ function DashboardPage() {
 
       const { error: checkInError } = await supabase
         .from("check_ins")
-        .insert([{ member_id: memberId, check_in_time: new Date().toISOString() }]);
+        .insert([{ member_id: memberId, gym_id: gymSettings?.id ?? null, check_in_time: new Date().toISOString() }]);
 
       if (checkInError) throw checkInError;
 
@@ -933,10 +954,78 @@ function DashboardPage() {
     }
   };
 
+  // ✅ Open the Scan QR modal; the scanner is initialized by an effect once the
+  // #reader element is mounted in the DOM.
   const startScanner = () => {
     setIsScanQROpen(true);
-    toast.info("QR Scanner is temporarily disabled for maintenance.");
   };
+
+  // ✅ Tear down the check-in scanner and close the modal.
+  const handleCloseQRScanner = useCallback(() => {
+    if (checkInScannerRef.current) {
+      checkInScannerRef.current.clear().catch(() => {});
+      checkInScannerRef.current = null;
+    }
+    setIsScanQROpen(false);
+    setIsCheckingIn(false);
+  }, []);
+
+  // ✅ Initialize the check-in QR scanner (reuses the existing handleCheckIn
+  // logic that writes to check_ins, logs activity and updates the live count).
+  const initializeCheckInScanner = useCallback(() => {
+    if (checkInScannerRef.current || !isScanQROpen) return;
+
+    const scanner = new Html5QrcodeScanner(
+      "reader",
+      { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+      false
+    );
+
+    const onScanSuccess = async (decodedText: string) => {
+      // Member QR codes encode the raw members.id UUID. Fall back to a
+      // member_id query param if the QR happens to be a URL.
+      let memberId = decodedText.trim();
+      try {
+        if (memberId.includes("?") || memberId.includes("&")) {
+          const url = new URL(memberId, window.location.origin);
+          memberId = url.searchParams.get("member_id") || memberId;
+        }
+      } catch {
+        // Not a URL — keep the raw decoded text.
+      }
+
+      if (!memberId) {
+        toast.error("Invalid QR code. No member ID found.");
+        return;
+      }
+
+      setIsCheckingIn(true);
+
+      // Stop the scanner first to prevent duplicate scans of the same code.
+      if (checkInScannerRef.current) {
+        await checkInScannerRef.current.clear().catch(() => {});
+        checkInScannerRef.current = null;
+      }
+
+      await handleCheckIn(memberId);
+
+      setIsScanQROpen(false);
+      setIsCheckingIn(false);
+    };
+
+    const onScanFailure = () => {
+      // Silently ignore per-frame scan failures.
+    };
+
+    try {
+      scanner.render(onScanSuccess, onScanFailure);
+      checkInScannerRef.current = scanner;
+    } catch (error) {
+      console.error("Failed to initialize check-in scanner:", error);
+      toast.error("Could not access camera. Please check permissions.");
+      setIsScanQROpen(false);
+    }
+  }, [isScanQROpen]);
 
   const handleSaveMember = async () => {
     if (!newMemberName || !newMemberPhone || !newMemberPlan) {
@@ -966,6 +1055,24 @@ function DashboardPage() {
       const ownerGymId = gymSettings?.id;
       if (!ownerGymId) {
         toast.error("Gym profile not found. Please complete your gym setup first.");
+        setIsSavingMember(false);
+        return;
+      }
+
+      // Proactively reject duplicate phone numbers within this gym before
+      // inserting, so the owner gets a clear message instead of a DB error.
+      const { data: existingMember, error: duplicateCheckError } = await supabase
+        .from("members")
+        .select("id")
+        .eq("gym_owner_id", currentUserId)
+        .or(`mobile_number.eq.${normalizedMemberPhone},phone.eq.${normalizedMemberPhone}`)
+        .limit(1)
+        .maybeSingle();
+
+      if (duplicateCheckError) {
+        console.warn("Duplicate phone check failed, continuing to insert:", duplicateCheckError);
+      } else if (existingMember) {
+        toast.error("A member with this phone number already exists in your gym.");
         setIsSavingMember(false);
         return;
       }
@@ -1016,7 +1123,19 @@ function DashboardPage() {
       // only when the invited member completes signup and becomes Active.
     } catch (error: any) {
       console.warn("Error saving member:", error);
-      toast.error("Failed to save member");
+
+      const code = String(error?.code || "");
+      const message = String(error?.message || "").toLowerCase();
+
+      // 23505 = Postgres unique_violation — covers the race where a duplicate
+      // phone slips past the pre-check above.
+      if (code === "23505" || message.includes("duplicate") || message.includes("already exists")) {
+        toast.error("A member with this phone number already exists in your gym.");
+      } else if (error?.message) {
+        toast.error(`Failed to save member: ${error.message}`);
+      } else {
+        toast.error("Failed to save member");
+      }
     } finally {
       setIsSavingMember(false);
     }
@@ -1273,6 +1392,24 @@ function DashboardPage() {
     };
   }, []);
 
+  // ✅ Initialize the check-in scanner when the Scan QR modal opens. A short
+  // delay ensures the #reader element is mounted before html5-qrcode binds.
+  useEffect(() => {
+    if (!isScanQROpen) return;
+
+    const timer = setTimeout(() => {
+      initializeCheckInScanner();
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+      if (checkInScannerRef.current) {
+        checkInScannerRef.current.clear().catch(() => {});
+        checkInScannerRef.current = null;
+      }
+    };
+  }, [isScanQROpen, initializeCheckInScanner]);
+
   const handleUpgradePayment = async () => {
     if (!currentUserId) return;
     
@@ -1294,6 +1431,8 @@ function DashboardPage() {
     }
 
     if (currentUserId) {
+      const ownerGymId = gymSettings?.id;
+
       fetchMembersCounts();
       fetchRecentActivities();
       fetchLowStock();
@@ -1309,13 +1448,27 @@ function DashboardPage() {
 
       window.addEventListener("member-payment-updated", handleMemberPaymentUpdated as EventListener);
 
-      const channel = supabase
+      let realtimeChannel = supabase
         .channel(`dashboard_realtime_${channelId}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: "activity_log", filter: `gym_owner_id=eq.${currentUserId}` }, fetchNotifications)
+        .on("postgres_changes", { event: "*", schema: "public", table: "activity_log", filter: `gym_owner_id=eq.${currentUserId}` }, () => {
+          // Keep both the notifications bell and the Activity Log panel live.
+          fetchNotifications();
+          fetchRecentActivities();
+        })
         .on("postgres_changes", { event: "*", schema: "public", table: "members", filter: `gym_owner_id=eq.${currentUserId}` }, fetchMembersCounts)
-        .on("postgres_changes", { event: "*", schema: "public", table: "profiles", filter: `gym_owner_id=eq.${currentUserId}` }, fetchMembersCounts)
-        .on("postgres_changes", { event: "INSERT", schema: "public", table: "check_ins" }, fetchLiveMemberCount)
-        .subscribe();
+        .on("postgres_changes", { event: "*", schema: "public", table: "profiles", filter: `gym_owner_id=eq.${currentUserId}` }, fetchMembersCounts);
+
+      // Only listen to THIS gym's check-ins. Attached once the gym id is known
+      // so we never subscribe to cross-gym attendance inserts.
+      if (ownerGymId) {
+        realtimeChannel = realtimeChannel.on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "check_ins", filter: `gym_id=eq.${ownerGymId}` },
+          fetchLiveMemberCount
+        );
+      }
+
+      const channel = realtimeChannel.subscribe();
 
       return () => {
         clearInterval(liveRefreshInterval);
@@ -1323,7 +1476,7 @@ function DashboardPage() {
         supabase.removeChannel(channel);
       };
     }
-  }, [currentUserId]);
+  }, [currentUserId, gymSettings?.id]);
 
   const dynamicMetrics = metricsTemplate.map(m => {
     if (m.title === "Total Members") return { ...m, value: `${totalMembersCount}` };
@@ -2134,7 +2287,14 @@ function DashboardPage() {
                     </Select>
                   </div>
                   <Button onClick={handleSaveMember} disabled={isSavingMember} className="w-full h-12 bg-primary text-white font-bold rounded-xl">
-                    {isSavingMember ? "Saving..." : "Save Member"}
+                    {isSavingMember ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Saving...
+                      </span>
+                    ) : (
+                      "Save Member"
+                    )}
                   </Button>
                 </div>
               ) : addMemberTab === "Share QR" ? (
@@ -2245,7 +2405,7 @@ function DashboardPage() {
       {/* QR Scanner Modal */}
       <AnimatePresence>
         {isScanQROpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md" onClick={() => setIsScanQROpen(false)}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 bg-black/80 backdrop-blur-md" onClick={handleCloseQRScanner}>
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -2255,10 +2415,19 @@ function DashboardPage() {
             >
               <div className="flex items-center justify-between">
                 <h3 className="text-2xl font-bold text-white">Scan Member QR</h3>
-                <button onClick={() => setIsScanQROpen(false)}><X className="h-6 w-6 text-white/40" /></button>
+                <button onClick={handleCloseQRScanner}><X className="h-6 w-6 text-white/40" /></button>
               </div>
-              <div id="reader" className="aspect-square max-w-70 mx-auto rounded-3xl overflow-hidden bg-black border-2 border-primary/30"></div>
-              <Button onClick={() => setIsScanQROpen(false)} className="w-full h-14 bg-white/10 text-white font-bold rounded-2xl">Close</Button>
+              <p className="text-sm text-white/50 font-medium -mt-4">Hold a member's QR code up to the camera to check them in.</p>
+              <div className="relative aspect-square max-w-70 mx-auto">
+                <div id="reader" className="aspect-square w-full rounded-3xl overflow-hidden bg-black border-2 border-primary/30"></div>
+                {isCheckingIn && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-3xl bg-black/60 backdrop-blur-sm">
+                    <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                    <p className="text-sm font-semibold text-white">Checking in…</p>
+                  </div>
+                )}
+              </div>
+              <Button onClick={handleCloseQRScanner} className="w-full h-14 bg-white/10 text-white font-bold rounded-2xl">Close</Button>
             </motion.div>
           </div>
         )}
