@@ -3,8 +3,11 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import '@/lib/leafletDefaultIcon';
 import L from 'leaflet';
+import { applyDefaultMarkerIcons } from "@/lib/leafletDefaultIcon";
+
+// Restore the stock blue pin on this module's Leaflet instance.
+applyDefaultMarkerIcons(L);
 import { createClient } from '@supabase/supabase-js';
 import { Phone, Star, MapPinned, Navigation2, Globe } from "lucide-react";
 

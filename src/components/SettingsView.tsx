@@ -47,7 +47,10 @@ import { initiatePhonePePayment, finalizeUpgrade } from "@/lib/phonepe";
 import { hasAccess } from "@/lib/permissions";
 import { WallQRTab } from "@/components/WallQRTab";
 import { TimePicker } from "@/components/TimePicker";
-import "@/lib/leafletDefaultIcon";
+// NOTE: do NOT statically import "@/lib/leafletDefaultIcon" here — it pulls in
+// `leaflet`, which touches `window` at module load and crashes SSR for every
+// route (SettingsView is in the dashboard's static import graph). The default
+// icon fix is applied client-side inside LeafletMap's lazy import below.
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -201,8 +204,15 @@ function LeafletMap({ center, zoom, className, children }: LeafletMapProps) {
   const [leaflet, setLeaflet] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
-    Promise.all([import("leaflet"), import("react-leaflet")]).then(([L, RL]) => {
-      setLeaflet({ L: L.default ?? L, ...RL });
+    Promise.all([
+      import("leaflet"),
+      import("react-leaflet"),
+      import("@/lib/leafletDefaultIcon"),
+    ]).then(([L, RL, icon]) => {
+      const leafletInstance = L.default ?? L;
+      // Restore the stock blue pin on the SAME instance the map will use.
+      icon.applyDefaultMarkerIcons(leafletInstance);
+      setLeaflet({ L: leafletInstance, ...RL });
     });
   }, []);
 

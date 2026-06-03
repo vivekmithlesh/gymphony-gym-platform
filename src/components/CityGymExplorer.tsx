@@ -10,9 +10,12 @@ import { toast } from "sonner";
 import { supabase } from "@/supabase";
 import { MapContainer, TileLayer, Marker, useMap, useMapEvents, Circle } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import '@/lib/leafletDefaultIcon';
 import L from 'leaflet';
+import { applyDefaultMarkerIcons } from "@/lib/leafletDefaultIcon";
 import { cn } from "@/lib/utils";
+
+// Restore the stock blue pin on this module's Leaflet instance.
+applyDefaultMarkerIcons(L);
 
 // Haversine formula to calculate distance between two lat/lon points in km
 const haversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number => {

@@ -2,9 +2,13 @@ import { useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import "@/lib/leafletDefaultIcon";
+import { applyDefaultMarkerIcons } from "@/lib/leafletDefaultIcon";
 import { ArrowRight, Dumbbell, Flame, Trophy } from "lucide-react";
 import type { GymLeaderboardEntry } from "@/hooks/useCityGymLeaderboard";
+
+// Restore the stock blue pin on this module's Leaflet instance (client-only —
+// this whole component is React.lazy'd, so it never evaluates during SSR).
+applyDefaultMarkerIcons(L);
 
 /**
  * Leaflet map for the city gym leaderboard. Lives in its own module so the

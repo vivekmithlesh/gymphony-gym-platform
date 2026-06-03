@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
+import React, { useCallback, useEffect, useMemo, useState, useRef, lazy, Suspense } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { motion, AnimatePresence, useSpring, useTransform, useMotionValue, animate } from "framer-motion";
 
@@ -40,7 +40,11 @@ import { MemberWallCheckIn } from "@/components/MemberWallCheckIn";
 import { MemberPurchaseHistory } from "@/components/MemberPurchaseHistory";
 import { ProfileSettings } from "@/components/ProfileSettings";
 import { CityLeaderboard } from "@/components/CityLeaderboard";
-import { CityGymExplorer } from "@/components/CityGymExplorer";
+// Loaded lazily (client-only): CityGymExplorer pulls in `leaflet`, which
+// touches `window` at module load and would crash SSR for every route.
+const CityGymExplorer = lazy(() =>
+  import("@/components/CityGymExplorer").then((m) => ({ default: m.CityGymExplorer }))
+);
 import { InternationalPhoneInput } from "@/components/InternationalPhoneInput";
 import { isValidInternationalPhone, normalizeToE164Phone } from "@/lib/phone";
 import { useRealtimeLeaderboard } from "@/hooks/useRealtimeLeaderboard";
@@ -905,18 +909,20 @@ export default function MemberDashboard() {
                   <CityLeaderboard />
                 )}
                 {activeTab === 'explorer' && (
-                  <CityGymExplorer
-                    onJoinGym={handleJoinGym}
-                    currentUserId={member.id}
-                    currentGymId={gymInfo?.id || member.gym_id}
-                    currentGym={gymInfo ? {
-                      id: gymInfo.id,
-                      gym_name: gymInfo.gym_name,
-                      latitude: gymInfo.latitude ?? null,
-                      longitude: gymInfo.longitude ?? null,
-                      city: gymInfo.city,
-                    } : undefined}
-                  />
+                  <Suspense fallback={<div className="flex items-center justify-center py-24"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}>
+                    <CityGymExplorer
+                      onJoinGym={handleJoinGym}
+                      currentUserId={member.id}
+                      currentGymId={gymInfo?.id || member.gym_id}
+                      currentGym={gymInfo ? {
+                        id: gymInfo.id,
+                        gym_name: gymInfo.gym_name,
+                        latitude: gymInfo.latitude ?? null,
+                        longitude: gymInfo.longitude ?? null,
+                        city: gymInfo.city,
+                      } : undefined}
+                    />
+                  </Suspense>
                 )}
                 {activeTab === 'attendance' && <MemberAttendanceTab memberId={member.id} />}
                 {activeTab === 'store' && (
