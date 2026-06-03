@@ -1,4 +1,5 @@
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { useEffect } from "react";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { ArrowRight, Dumbbell, Flame, Trophy } from "lucide-react";
@@ -11,21 +12,44 @@ import type { GymLeaderboardEntry } from "@/hooks/useCityGymLeaderboard";
  */
 
 const markerStyles = `
-  /* Pulse expands from the pin centre; only rendered while a gym is ACTIVE. */
-  @keyframes gpPulse {
-    0%   { transform: translate(-50%, -50%) scale(0.35); opacity: 0.5; }
-    100% { transform: translate(-50%, -50%) scale(1);    opacity: 0;   }
+  /* --- Premium silver/grayscale basemap. Positron is already a clean light
+     theme; a whisper of grayscale + contrast gives it the muted, sleek look. */
+  .gp-map .leaflet-tile { filter: grayscale(0.28) contrast(0.96) brightness(1.03); }
+  .gp-map .leaflet-container { background: #eef1f5; }
+
+  /* --- Custom live marker: a sleek red dot with a radial ripple that makes the
+     map feel alive. The pulse lives ONLY here, never on leaderboard avatars. */
+  @keyframes gpRipple {
+    0%   { transform: translate(-50%, -50%) scale(0.32); opacity: 0.55; }
+    70%  { opacity: 0.12; }
+    100% { transform: translate(-50%, -50%) scale(1.5);  opacity: 0; }
   }
   .gp-marker { position: relative; display: flex; align-items: center; justify-content: center; }
-  .gp-pulse { position: absolute; left: 50%; top: 50%; border-radius: 9999px; pointer-events: none; animation: gpPulse 1.9s ease-out infinite; }
-  .gp-pulse-2 { animation-delay: 0.63s; }
-  .gp-pulse-3 { animation-delay: 1.26s; }
-  /* Compact, Google-style circular pin. */
-  .gp-pin { position: relative; z-index: 5; display: flex; align-items: center; justify-content: center; color: #fff; border: 2.5px solid #fff; border-radius: 9999px; box-shadow: 0 3px 9px rgba(15, 23, 42, 0.4); font-weight: 800; line-height: 1; }
-  .gp-pin-1 { background: linear-gradient(135deg, #fbbf24, #f97316); }  /* gold  */
-  .gp-pin-2 { background: linear-gradient(135deg, #cbd5e1, #94a3b8); }  /* silver */
-  .gp-pin-3 { background: linear-gradient(135deg, #fb923c, #c2410c); }  /* bronze */
-  .gp-pin-n { background: linear-gradient(135deg, #a78bfa, #7c3aed); }  /* purple */
+  .gp-ripple {
+    position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; border-radius: 9999px;
+    background: radial-gradient(circle, rgba(244, 63, 94, 0.42) 0%, rgba(244, 63, 94, 0.14) 45%, rgba(244, 63, 94, 0) 70%);
+    animation: gpRipple 2.1s ease-out infinite; pointer-events: none;
+  }
+  .gp-ripple-2 { animation-delay: 0.7s; }
+  .gp-ripple-3 { animation-delay: 1.4s; }
+  .gp-dot {
+    position: relative; z-index: 5; display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 800; line-height: 1; border: 2.5px solid #fff; border-radius: 9999px;
+    background: linear-gradient(135deg, #fb7185, #e11d48);
+    box-shadow: 0 4px 12px rgba(225, 29, 72, 0.5);
+  }
+  .gp-dot-lead { background: linear-gradient(135deg, #fb7185, #be123c); box-shadow: 0 5px 18px rgba(190, 18, 60, 0.6); }
+
+  /* --- Fullscreen toggle, styled to match the premium UI. */
+  .gp-fs-btn {
+    display: flex; align-items: center; justify-content: center; width: 34px; height: 34px;
+    cursor: pointer; border: none; border-radius: 10px; background: #fff; color: #334155;
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18); transition: background 0.15s, color 0.15s;
+  }
+  .gp-fs-btn:hover { background: #7c3aed; color: #fff; }
+  .gp-fs-btn svg { width: 18px; height: 18px; }
+
+  /* --- Popup polish. */
   .gp-popup .leaflet-popup-content-wrapper { border-radius: 18px; padding: 0; overflow: hidden; box-shadow: 0 20px 45px rgba(15, 23, 42, 0.25); }
   .gp-popup .leaflet-popup-content { margin: 0; width: auto !important; }
   .gp-popup .leaflet-popup-tip { background: #fff; }
@@ -33,38 +57,86 @@ const markerStyles = `
 
 const ALIGARH_CENTER: [number, number] = [27.8974, 78.088];
 
-const buildIcon = (entry: GymLeaderboardEntry, topScore: number) => {
+const EXPAND_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>`;
+const COLLAPSE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>`;
+
+/**
+ * A native-fullscreen toggle, added as a real Leaflet control so it travels
+ * into the fullscreen surface with the map. invalidateSize() after the
+ * transition keeps tiles crisp at the new dimensions.
+ */
+const FullscreenControl = () => {
+  const map = useMap();
+
+  useEffect(() => {
+    const FsControl = L.Control.extend({
+      options: { position: "topright" as L.ControlPosition },
+      onAdd() {
+        const btn = L.DomUtil.create("button", "gp-fs-btn") as HTMLButtonElement;
+        btn.type = "button";
+        btn.title = "Toggle fullscreen";
+        btn.setAttribute("aria-label", "Toggle fullscreen");
+        btn.innerHTML = EXPAND_ICON;
+        L.DomEvent.disableClickPropagation(btn);
+        L.DomEvent.disableScrollPropagation(btn);
+        L.DomEvent.on(btn, "click", (e) => {
+          L.DomEvent.stop(e);
+          const el = map.getContainer();
+          if (!document.fullscreenElement) {
+            void el.requestFullscreen?.().catch(() => {});
+          } else {
+            void document.exitFullscreen?.();
+          }
+        });
+        return btn;
+      },
+    });
+
+    const control = new FsControl();
+    control.addTo(map);
+
+    const onFsChange = () => {
+      const el = map.getContainer();
+      const btn = el.querySelector<HTMLButtonElement>(".gp-fs-btn");
+      const isFs = document.fullscreenElement === el;
+      if (btn) btn.innerHTML = isFs ? COLLAPSE_ICON : EXPAND_ICON;
+      // Let the browser finish the resize, then refit the tile grid.
+      window.setTimeout(() => map.invalidateSize(), 150);
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      control.remove();
+    };
+  }, [map]);
+
+  return null;
+};
+
+const buildIcon = (entry: GymLeaderboardEntry) => {
   const isLeader = entry.rank === 1;
-  const size = isLeader ? 34 : 28; // compact, like a real map marker
-  const rankClass = entry.rank <= 3 ? String(entry.rank) : "n";
-  const label = isLeader ? "🔥" : `#${entry.rank}`;
+  const size = isLeader ? 30 : 24;
+  const label = isLeader ? "★" : `${entry.rank}`;
 
-  // Pulse radius scales pixel-wise with this gym's calories (capped), with a
-  // small boost for the city leader. Only drawn when the gym is active NOW.
-  const intensity = topScore > 0 ? entry.vibe_points / topScore : 0;
-  const pulse = Math.round(size + 12 + Math.min(60, entry.vibe_points / 25) + intensity * 14);
-  const glow = isLeader ? "rgba(249, 115, 22, 0.32)" : "rgba(124, 58, 237, 0.28)";
-
-  const pulseHtml = entry.is_active
-    ? ["gp-pulse", "gp-pulse gp-pulse-2", "gp-pulse gp-pulse-3"]
-        .map(
-          (cls) =>
-            `<span class="${cls}" style="width:${pulse}px;height:${pulse}px;background:${glow};"></span>`,
-        )
-        .join("")
+  // The ripple only renders while the gym is ACTIVE now — that's what makes a
+  // live gym stand out. The dot itself is always the sleek red pointer.
+  const ripple = entry.is_active
+    ? `<span class="gp-ripple"></span><span class="gp-ripple gp-ripple-2"></span><span class="gp-ripple gp-ripple-3"></span>`
     : "";
 
   return L.divIcon({
     className: "gp-custom-icon",
     html: `
       <div class="gp-marker" style="width:${size}px;height:${size}px;">
-        ${pulseHtml}
-        <div class="gp-pin gp-pin-${rankClass}" style="width:${size}px;height:${size}px;font-size:${isLeader ? 15 : 11}px;">
+        ${ripple}
+        <div class="gp-dot ${isLeader ? "gp-dot-lead" : ""}" style="width:${size}px;height:${size}px;font-size:${isLeader ? 14 : 11}px;">
           ${label}
         </div>
       </div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
   });
 };
 
@@ -73,18 +145,22 @@ const CityLeaderboardMap = ({ entries }: { entries: GymLeaderboardEntry[] }) => 
   const center: [number, number] = located.length
     ? [located[0].latitude as number, located[0].longitude as number]
     : ALIGARH_CENTER;
-  const topScore = located.reduce((m, g) => Math.max(m, g.vibe_points), 0);
 
   return (
-    <div className="relative w-full overflow-hidden rounded-3xl border border-slate-200 shadow-inner">
+    <div className="gp-map relative w-full overflow-hidden rounded-3xl border border-slate-200 shadow-inner">
       <style>{markerStyles}</style>
-      <MapContainer center={center} zoom={13} scrollWheelZoom={false} className="z-0 h-115 w-full">
-        <TileLayer url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" />
+      <MapContainer center={center} zoom={13} scrollWheelZoom className="z-0 h-115 w-full">
+        <TileLayer
+          url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+          maxZoom={20}
+        />
+        <FullscreenControl />
         {located.map((gym) => (
           <Marker
             key={`${gym.gym_id}-${gym.is_active ? "live" : "idle"}-${gym.rank}`}
             position={[gym.latitude as number, gym.longitude as number]}
-            icon={buildIcon(gym, topScore)}
+            icon={buildIcon(gym)}
           >
             <Popup className="gp-popup">
               <div className="w-72 font-sans">

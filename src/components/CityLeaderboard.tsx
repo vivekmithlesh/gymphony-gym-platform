@@ -72,39 +72,6 @@ const GymAvatar = ({
 };
 
 /* -------------------------------------------------------------------------- */
-/*  Concentric energy rings — radius / count / glow scale with the vibe score. */
-/* -------------------------------------------------------------------------- */
-const ConcentricRings = ({ intensity, active }: { intensity: number; active: boolean }) => {
-  const clamped = Math.max(0.15, Math.min(1, intensity));
-  const ringCount = 2 + Math.round(clamped * 2); // 2..4
-  return (
-    <>
-      {Array.from({ length: ringCount }).map((_, i) => {
-        const step = (i + 1) / ringCount;
-        const spread = 14 + clamped * 34 * step; // px beyond the avatar
-        const opacity = 0.1 + (1 - step) * 0.3 * (0.5 + clamped);
-        return (
-          <motion.span
-            key={i}
-            className="absolute rounded-full border-2"
-            style={{
-              inset: -spread,
-              borderColor: `rgba(124, 58, 237, ${opacity})`,
-            }}
-            animate={
-              active
-                ? { scale: [1, 1.1, 1], opacity: [opacity, opacity * 1.9, opacity] }
-                : { scale: 1, opacity }
-            }
-            transition={{ duration: 2, repeat: Infinity, delay: i * 0.3, ease: "easeOut" }}
-          />
-        );
-      })}
-    </>
-  );
-};
-
-/* -------------------------------------------------------------------------- */
 /*  Stat pill                                                                  */
 /* -------------------------------------------------------------------------- */
 const StatPill = ({
@@ -154,9 +121,9 @@ const ChampionCard = ({ entry, isMine, city }: { entry: GymLeaderboardEntry; isM
 
     <div className="relative rounded-[calc(2rem-1px)] bg-white/95 p-6 backdrop-blur-sm sm:p-8">
       <div className="flex flex-col items-center gap-6 sm:flex-row sm:gap-8">
-        {/* Avatar + crown + energy rings */}
+        {/* Avatar + crown. The "live" pulse intentionally lives only on the map
+            marker now — keeping the hero avatar calm and premium. */}
         <div className="relative flex shrink-0 items-center justify-center">
-          {entry.is_active && <ConcentricRings intensity={0.95} active />}
           <Crown className="absolute -top-8 z-20 h-9 w-9 fill-amber-400 text-amber-500 drop-shadow" />
           <div className="relative z-10">
             <GymAvatar
