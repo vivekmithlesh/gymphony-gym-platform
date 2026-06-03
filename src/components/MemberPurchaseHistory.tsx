@@ -78,6 +78,21 @@ export function MemberPurchaseHistory({ memberId }: MemberPurchaseHistoryProps) 
 
   useEffect(() => {
     fetchPurchaseHistory();
+
+    // Live-update when the member buys something from the store.
+    const channel = supabase
+      .channel(`purchase_history_${memberId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "purchases", filter: `member_id=eq.${memberId}` },
+        () => fetchPurchaseHistory()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberId]);
 
   const fetchPurchaseHistory = async () => {
@@ -105,15 +120,35 @@ export function MemberPurchaseHistory({ memberId }: MemberPurchaseHistoryProps) 
         category: "Membership",
       }));
 
-      // Try to fetch from inventory_sales (if exists) or just use payments for now
-      // Since I didn't find inventory_sales, I'll stick to payments but add a placeholder for future
-      
-      setPurchases(formattedPayments);
-      
-      if (formattedPayments.length > 0) {
-        const total = formattedPayments.reduce((sum, p) => sum + (Number(p.price) || 0), 0);
-        setTotalSpent(total);
+      // Store purchases (supplements, drinks, gear) from the gym store.
+      const { data: storeData, error: storeError } = await supabase
+        .from("purchases")
+        .select("id, item_name, quantity, unit_price, category, image_url, created_at")
+        .eq("member_id", memberId)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (storeError) {
+        console.warn("Error fetching store purchases:", storeError.message);
       }
+
+      const formattedStore: Purchase[] = (storeData || []).map((s: any) => ({
+        id: s.id,
+        item_name: s.item_name || "Store Item",
+        quantity: s.quantity ?? 1,
+        price: Number(s.unit_price) || 0,
+        purchase_date: s.created_at,
+        category: s.category || "Store",
+        image_url: s.image_url || undefined,
+      }));
+
+      // Merge both feeds, newest first.
+      const merged = [...formattedStore, ...formattedPayments].sort(
+        (a, b) => new Date(b.purchase_date).getTime() - new Date(a.purchase_date).getTime()
+      );
+
+      setPurchases(merged);
+      setTotalSpent(merged.reduce((sum, p) => sum + (Number(p.price) || 0) * (p.quantity || 1), 0));
     } catch (error: any) {
       console.error("Error fetching purchase history:", error);
     } finally {
