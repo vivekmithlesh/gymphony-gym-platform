@@ -18,16 +18,23 @@ const defaultIcon = createDefaultMarkerIcon(L) as L.Icon;
  */
 
 const markerStyles = `
-  /* --- Calorie "blink": a pulse ring rendered behind the blue pin for gyms that
-     are live now. Ring size scales with the gym's calories (set inline). */
-  @keyframes gpPulse {
-    0%   { transform: translate(-50%, -50%) scale(0.3); opacity: 0.75; }
-    100% { transform: translate(-50%, -50%) scale(1);   opacity: 0;    }
+  /* --- Calorie "water ripple": RED outline-only rings expanding + fading from
+     the pin (like a stone hitting water). Transparent inside — border only.
+     Ring max-size scales with the gym's calories (set inline). */
+  @keyframes gpRipple {
+    0%   { transform: translate(-50%, -50%) scale(0.2); opacity: 0.9; }
+    70%  { opacity: 0.35; }
+    100% { transform: translate(-50%, -50%) scale(1);   opacity: 0;   }
   }
   .gp-pulse-wrap { position: relative; }
-  .gp-pulse { position: absolute; left: 50%; top: 50%; border-radius: 9999px; pointer-events: none; animation: gpPulse 1.9s ease-out infinite; }
-  .gp-pulse-2 { animation-delay: 0.63s; }
-  .gp-pulse-3 { animation-delay: 1.26s; }
+  .gp-pulse {
+    position: absolute; left: 50%; top: 50%; border-radius: 9999px;
+    background: transparent; border: 2.5px solid rgba(239, 68, 68, 0.9);
+    box-shadow: 0 0 6px rgba(239, 68, 68, 0.35);
+    pointer-events: none; animation: gpRipple 2.1s ease-out infinite;
+  }
+  .gp-pulse-2 { animation-delay: 0.7s; }
+  .gp-pulse-3 { animation-delay: 1.4s; }
 
   /* --- Fullscreen toggle button. */
   .gp-fs-btn {
@@ -50,18 +57,16 @@ const ALIGARH_CENTER: [number, number] = [27.8974, 78.088];
 // whole map when zoomed out (revealed once you zoom into the city).
 const MARKER_ZOOM = 11;
 
-// A pulse-only divIcon (no pin) drawn behind the blue marker. The ring radius
+// A pulse-only divIcon (no pin) drawn behind the blue marker: RED water-ripple
+// rings (outline only, transparent inside — see .gp-pulse). The ring max-radius
 // scales with the gym's calories vs the city leader, capped, so a busy gym
-// blinks bigger — the "calorie" cue — without ever covering the map. Gyms that
-// are LIVE right now (or the city leader) glow orange; the rest glow purple.
+// ripples wider — the "calorie" cue — without ever covering the map.
 const buildPulseIcon = (entry: GymLeaderboardEntry, topScore: number) => {
   const base = entry.rank === 1 ? 34 : 28;
   const intensity = topScore > 0 ? entry.vibe_points / topScore : 0;
   const pulse = Math.round(base + 20 + Math.min(60, entry.vibe_points / 25) + intensity * 14);
-  const glow =
-    entry.is_active || entry.rank === 1 ? "rgba(249, 115, 22, 0.4)" : "rgba(124, 58, 237, 0.36)";
   const ring = (cls: string) =>
-    `<span class="${cls}" style="width:${pulse}px;height:${pulse}px;background:${glow};"></span>`;
+    `<span class="${cls}" style="width:${pulse}px;height:${pulse}px;"></span>`;
 
   return L.divIcon({
     className: "gp-pulse-icon",
