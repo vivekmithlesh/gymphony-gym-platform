@@ -33,9 +33,9 @@ const markerStyles = `
        (a gradient pulse, not a solid disc or a hard outline). Size is set inline
        so the ripple scales with the gym's calories. */
     background: radial-gradient(circle,
-      rgba(239, 68, 68, 0) 66%,
-      rgba(239, 68, 68, 0.7) 84%,
-      rgba(239, 68, 68, 0.15) 93%,
+      rgba(239, 68, 68, 0) 48%,
+      rgba(239, 68, 68, 0.55) 70%,
+      rgba(239, 68, 68, 0.12) 86%,
       rgba(239, 68, 68, 0) 100%);
     pointer-events: none; animation: gpRipple 2.1s ease-out infinite;
   }
@@ -63,22 +63,22 @@ const ALIGARH_CENTER: [number, number] = [27.8974, 78.088];
 // whole map when zoomed out (revealed once you zoom into the city).
 const MARKER_ZOOM = 11;
 
-// A pulse-only divIcon (no pin) drawn behind the blue marker: thin soft RED
-// water-ripple rings centred on the marker point (the pin's base/tip). The ring
-// size is tightly BOUNDED — a busier gym ripples only slightly wider, never
-// ballooning into a big circle over the map.
-const PULSE_BASE = 30; // wrap box (px)
+// A pulse-only divIcon (no pin) drawn behind the blue marker: a soft RED
+// water-ripple centred on the marker point (the pin's base/bottom). The ring
+// radius scales with the gym's calories vs the city leader (capped), so a busier
+// gym ripples wider.
 const buildPulseIcon = (entry: GymLeaderboardEntry, topScore: number) => {
+  const base = entry.rank === 1 ? 34 : 28;
   const intensity = topScore > 0 ? entry.vibe_points / topScore : 0;
-  const pulse = Math.round(40 + Math.min(22, intensity * 22)); // 40–62px, capped
+  const pulse = Math.round(base + 12 + Math.min(60, entry.vibe_points / 25) + intensity * 14);
   const ring = (cls: string) =>
     `<span class="${cls}" style="width:${pulse}px;height:${pulse}px;"></span>`;
 
   return L.divIcon({
     className: "gp-pulse-icon",
-    html: `<div class="gp-pulse-wrap" style="width:${PULSE_BASE}px;height:${PULSE_BASE}px;">${ring("gp-pulse")}${ring("gp-pulse gp-pulse-2")}${ring("gp-pulse gp-pulse-3")}</div>`,
-    iconSize: [PULSE_BASE, PULSE_BASE],
-    iconAnchor: [PULSE_BASE / 2, PULSE_BASE / 2],
+    html: `<div class="gp-pulse-wrap" style="width:${base}px;height:${base}px;">${ring("gp-pulse")}${ring("gp-pulse gp-pulse-2")}${ring("gp-pulse gp-pulse-3")}</div>`,
+    iconSize: [base, base],
+    iconAnchor: [base / 2, base / 2],
   });
 };
 
