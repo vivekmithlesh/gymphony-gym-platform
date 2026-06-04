@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import { Fragment, useEffect, useState } from "react";
+import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { createDefaultMarkerIcon } from "@/lib/leafletDefaultIcon";
@@ -18,6 +18,17 @@ const defaultIcon = createDefaultMarkerIcon(L) as L.Icon;
  */
 
 const markerStyles = `
+  /* --- Calorie "blink": a pulse ring rendered behind the blue pin for gyms that
+     are live now. Ring size scales with the gym's calories (set inline). */
+  @keyframes gpPulse {
+    0%   { transform: translate(-50%, -50%) scale(0.35); opacity: 0.5; }
+    100% { transform: translate(-50%, -50%) scale(1);    opacity: 0;   }
+  }
+  .gp-pulse-wrap { position: relative; }
+  .gp-pulse { position: absolute; left: 50%; top: 50%; border-radius: 9999px; pointer-events: none; animation: gpPulse 1.9s ease-out infinite; }
+  .gp-pulse-2 { animation-delay: 0.63s; }
+  .gp-pulse-3 { animation-delay: 1.26s; }
+
   /* --- Fullscreen toggle button. */
   .gp-fs-btn {
     display: flex; align-items: center; justify-content: center; width: 34px; height: 34px;
@@ -34,6 +45,36 @@ const markerStyles = `
 `;
 
 const ALIGARH_CENTER: [number, number] = [27.8974, 78.088];
+
+// Below this zoom the gyms are hidden so the markers don't scatter across the
+// whole map when zoomed out (revealed once you zoom into the city).
+const MARKER_ZOOM = 11;
+
+// A pulse-only divIcon (no pin) drawn behind the blue marker for a LIVE gym. The
+// ring radius scales with the gym's calories vs the city leader, capped, so a
+// busy gym blinks bigger — the "calorie" cue — without ever covering the map.
+const buildPulseIcon = (entry: GymLeaderboardEntry, topScore: number) => {
+  const base = entry.rank === 1 ? 34 : 28;
+  const intensity = topScore > 0 ? entry.vibe_points / topScore : 0;
+  const pulse = Math.round(base + 12 + Math.min(60, entry.vibe_points / 25) + intensity * 14);
+  const glow = entry.rank === 1 ? "rgba(249, 115, 22, 0.34)" : "rgba(124, 58, 237, 0.3)";
+  const ring = (cls: string) =>
+    `<span class="${cls}" style="width:${pulse}px;height:${pulse}px;background:${glow};"></span>`;
+
+  return L.divIcon({
+    className: "gp-pulse-icon",
+    html: `<div class="gp-pulse-wrap" style="width:${base}px;height:${base}px;">${ring("gp-pulse")}${ring("gp-pulse gp-pulse-2")}${ring("gp-pulse gp-pulse-3")}</div>`,
+    iconSize: [base, base],
+    iconAnchor: [base / 2, base / 2],
+  });
+};
+
+// Tracks live map zoom so the parent can hide markers when zoomed out.
+const ZoomWatcher = ({ onZoom }: { onZoom: (z: number) => void }) => {
+  const map = useMapEvents({ zoomend: () => onZoom(map.getZoom()) });
+  useEffect(() => onZoom(map.getZoom()), [map, onZoom]);
+  return null;
+};
 
 const EXPAND_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>`;
 const COLLAPSE_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3"/><path d="M21 8h-3a2 2 0 0 1-2-2V3"/><path d="M3 16h3a2 2 0 0 1 2 2v3"/><path d="M16 21v-3a2 2 0 0 1 2-2h3"/></svg>`;
@@ -97,6 +138,10 @@ const CityLeaderboardMap = ({ entries }: { entries: GymLeaderboardEntry[] }) => 
   const center: [number, number] = located.length
     ? [located[0].latitude as number, located[0].longitude as number]
     : ALIGARH_CENTER;
+  const topScore = located.reduce((m, g) => Math.max(m, g.vibe_points), 0);
+
+  const [zoom, setZoom] = useState(13);
+  const showMarkers = zoom >= MARKER_ZOOM;
 
   return (
     <div className="relative w-full overflow-hidden rounded-3xl border border-slate-200 shadow-inner">
@@ -107,12 +152,23 @@ const CityLeaderboardMap = ({ entries }: { entries: GymLeaderboardEntry[] }) => 
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         />
         <FullscreenControl />
-        {located.map((gym) => (
-          <Marker
-            key={`${gym.gym_id}-${gym.is_active ? "live" : "idle"}-${gym.rank}`}
-            position={[gym.latitude as number, gym.longitude as number]}
-            icon={defaultIcon}
-          >
+        <ZoomWatcher onZoom={setZoom} />
+        {showMarkers &&
+          located.map((gym) => (
+            <Fragment key={gym.gym_id}>
+              {/* Calorie "blink" ring behind the pin, only while the gym is live. */}
+              {gym.is_active && (
+                <Marker
+                  position={[gym.latitude as number, gym.longitude as number]}
+                  icon={buildPulseIcon(gym, topScore)}
+                  interactive={false}
+                  zIndexOffset={-1000}
+                />
+              )}
+              <Marker
+                position={[gym.latitude as number, gym.longitude as number]}
+                icon={defaultIcon}
+              >
             <Popup className="gp-popup">
               <div className="w-72 font-sans">
                 {/* Header — logo + name + rank-in-city */}
@@ -168,8 +224,9 @@ const CityLeaderboardMap = ({ entries }: { entries: GymLeaderboardEntry[] }) => 
                 </div>
               </div>
             </Popup>
-          </Marker>
-        ))}
+              </Marker>
+            </Fragment>
+          ))}
       </MapContainer>
     </div>
   );
