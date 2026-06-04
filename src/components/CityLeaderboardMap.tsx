@@ -26,11 +26,16 @@ const markerStyles = `
     70%  { opacity: 0.35; }
     100% { transform: translate(-50%, -50%) scale(1);   opacity: 0;   }
   }
-  .gp-pulse-wrap { position: relative; }
+  .gp-pulse-wrap { position: relative; width: 100%; height: 100%; }
   .gp-pulse {
-    position: absolute; left: 50%; top: 50%; border-radius: 9999px;
-    background: transparent; border: 2.5px solid rgba(239, 68, 68, 0.9);
-    box-shadow: 0 0 6px rgba(239, 68, 68, 0.35);
+    position: absolute; left: 50%; top: 50%; width: 100%; height: 100%; border-radius: 9999px;
+    /* Soft RED gradient ring — transparent centre, red fading out at the edges
+       (a gradient pulse, not a solid disc or a hard outline). */
+    background: radial-gradient(circle,
+      rgba(239, 68, 68, 0) 48%,
+      rgba(239, 68, 68, 0.55) 70%,
+      rgba(239, 68, 68, 0.12) 86%,
+      rgba(239, 68, 68, 0) 100%);
     pointer-events: none; animation: gpRipple 2.1s ease-out infinite;
   }
   .gp-pulse-2 { animation-delay: 0.7s; }
@@ -57,24 +62,24 @@ const ALIGARH_CENTER: [number, number] = [27.8974, 78.088];
 // whole map when zoomed out (revealed once you zoom into the city).
 const MARKER_ZOOM = 11;
 
-// A pulse-only divIcon (no pin) drawn behind the blue marker: RED water-ripple
-// rings (outline only, transparent inside — see .gp-pulse). The ring max-radius
-// scales with the gym's calories vs the city leader, capped, so a busy gym
-// ripples wider — the "calorie" cue — without ever covering the map.
-const buildPulseIcon = (entry: GymLeaderboardEntry, topScore: number) => {
-  const base = entry.rank === 1 ? 34 : 28;
-  const intensity = topScore > 0 ? entry.vibe_points / topScore : 0;
-  const pulse = Math.round(base + 20 + Math.min(60, entry.vibe_points / 25) + intensity * 14);
-  const ring = (cls: string) =>
-    `<span class="${cls}" style="width:${pulse}px;height:${pulse}px;"></span>`;
+// A pulse-only divIcon (no pin) drawn behind the blue marker: a soft RED
+// water-ripple. Fixed small size (no calorie scaling, so it never balloons into
+// a big circle over the map), and anchored on the pin's HEAD — offset up from
+// the tip — so the rings hug the round blue head, not the bottom point.
+const PULSE_SIZE = 44; // max ripple diameter (px)
+const PULSE_HEAD_OFFSET = 29; // px up from the tip → centre on the default pin's head
 
-  return L.divIcon({
-    className: "gp-pulse-icon",
-    html: `<div class="gp-pulse-wrap" style="width:${base}px;height:${base}px;">${ring("gp-pulse")}${ring("gp-pulse gp-pulse-2")}${ring("gp-pulse gp-pulse-3")}</div>`,
-    iconSize: [base, base],
-    iconAnchor: [base / 2, base / 2],
-  });
-};
+const pulseIcon = L.divIcon({
+  className: "gp-pulse-icon",
+  html:
+    `<div class="gp-pulse-wrap">` +
+    `<span class="gp-pulse"></span>` +
+    `<span class="gp-pulse gp-pulse-2"></span>` +
+    `<span class="gp-pulse gp-pulse-3"></span>` +
+    `</div>`,
+  iconSize: [PULSE_SIZE, PULSE_SIZE],
+  iconAnchor: [PULSE_SIZE / 2, PULSE_SIZE / 2 + PULSE_HEAD_OFFSET],
+});
 
 // Tracks live map zoom so the parent can hide markers when zoomed out.
 const ZoomWatcher = ({ onZoom }: { onZoom: (z: number) => void }) => {
@@ -145,7 +150,6 @@ const CityLeaderboardMap = ({ entries }: { entries: GymLeaderboardEntry[] }) => 
   const center: [number, number] = located.length
     ? [located[0].latitude as number, located[0].longitude as number]
     : ALIGARH_CENTER;
-  const topScore = located.reduce((m, g) => Math.max(m, g.vibe_points), 0);
 
   const [zoom, setZoom] = useState(13);
   const showMarkers = zoom >= MARKER_ZOOM;
@@ -167,7 +171,7 @@ const CityLeaderboardMap = ({ entries }: { entries: GymLeaderboardEntry[] }) => 
                   feels alive; orange when the gym is live, sized by calories. */}
               <Marker
                 position={[gym.latitude as number, gym.longitude as number]}
-                icon={buildPulseIcon(gym, topScore)}
+                icon={pulseIcon}
                 interactive={false}
                 zIndexOffset={-1000}
               />
