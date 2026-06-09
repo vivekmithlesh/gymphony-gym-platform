@@ -408,7 +408,7 @@ export function KioskMode() {
                   </div>
                 ) : (
                   <p className="mt-6 flex items-center gap-2 text-sm text-gray-500">
-                    <MapPin className="h-4 w-4" /> Geo-fenced — members must be within 100&nbsp;m to check in.
+                    <MapPin className="h-4 w-4" /> Geo-fenced — members must be on-site (within the radius set in Settings) to check in.
                   </p>
                 )}
               </>

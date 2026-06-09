@@ -87,6 +87,7 @@ type GymSettings = {
   gym_videos: string[];
   latitude: number | null;
   longitude: number | null;
+  checkin_radius_m: number;
   opening_time: string;
   closing_time: string;
   description: string;
@@ -148,6 +149,7 @@ const buildDefaultSettings = (userId: string, email: string): Omit<GymSettings, 
   gym_videos: [],
   latitude: null,
   longitude: null,
+  checkin_radius_m: 100,
   opening_time: "",
   closing_time: "",
   description: "",
@@ -343,6 +345,7 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
           ...data,
           latitude: toFiniteNumber(data.latitude ?? data.lat),
           longitude: toFiniteNumber(data.longitude ?? data.lng),
+          checkin_radius_m: toFiniteNumber(data.checkin_radius_m) ?? 100,
           gym_photos: Array.isArray(data.gym_photos) ? data.gym_photos : [],
           gym_videos: Array.isArray(data.gym_videos) ? data.gym_videos : [],
         });
@@ -623,14 +626,19 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
       toast.error("Pick a location on the map first.");
       return;
     }
+    // Clamp the radius to the DB-enforced bounds so a stray value can't 400 the
+    // upsert or silently disable the geo-fence. Mirrors the CHECK on
+    // gym_settings.checkin_radius_m (migration 20260616).
+    const radius = Math.min(2000, Math.max(20, Math.round(toFiniteNumber(settings.checkin_radius_m) ?? 100)));
     setIsSavingLocation(true);
     const saved = await persistSettings({
       latitude: locationDraft.latitude,
       longitude: locationDraft.longitude,
+      checkin_radius_m: radius,
     });
     if (saved) toast.success("Gym location saved!");
     setIsSavingLocation(false);
-  }, [userId, locationDraft, persistSettings]);
+  }, [userId, locationDraft, settings.checkin_radius_m, persistSettings]);
 
   // ── Plans ─────────────────────────────────────────────────────────────────────
   const fetchPlans = useCallback(async () => {
@@ -1327,13 +1335,38 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
                         </div>
                       </div>
 
+                      {/* Check-in radius — the geo-fence each member must be within (per gym) */}
+                      <div className="space-y-2">
+                        <Label className="text-slate-600">Check-in radius (metres)</Label>
+                        <Input
+                          inputMode="numeric"
+                          type="number"
+                          min={20}
+                          max={2000}
+                          value={settings.checkin_radius_m ?? 100}
+                          onChange={(e) =>
+                            setSettings((prev) => ({
+                              ...prev,
+                              checkin_radius_m: toFiniteNumber(e.target.value) ?? prev.checkin_radius_m,
+                            }))
+                          }
+                          placeholder="100"
+                          className="rounded-xl border-slate-200 bg-white text-slate-900"
+                        />
+                        <p className="text-[11px] text-muted-foreground">
+                          How close (20–2000&nbsp;m) a member must be to check in. Lower is stricter, but
+                          phone GPS is often off by 20–50&nbsp;m indoors, so very low values cause failed check-ins.
+                        </p>
+                      </div>
+
                       {/* Why this matters — ties the location to Wall QR check-ins */}
                       {locationDraft.latitude === null || locationDraft.longitude === null ? (
                         <div className="flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                           <MapPin className="mt-0.5 h-4 w-4 shrink-0" />
                           <span>
                             <strong>Location not set.</strong> Members can't use Wall QR check-in until you
-                            pin your gym here — it geo-fences check-ins to people physically on-site (within 100&nbsp;m).
+                            pin your gym here — it geo-fences check-ins to people physically on-site
+                            (within {settings.checkin_radius_m ?? 100}&nbsp;m).
                           </span>
                         </div>
                       ) : (
@@ -1341,7 +1374,7 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
                           <Crosshair className="mt-0.5 h-4 w-4 shrink-0" />
                           <span>
                             This location powers <strong>Wall QR check-in</strong>. Members scanning your printed QR
-                            must be within <strong>100&nbsp;m</strong> of this pin to check in.
+                            must be within <strong>{settings.checkin_radius_m ?? 100}&nbsp;m</strong> of this pin to check in.
                           </span>
                         </div>
                       )}
