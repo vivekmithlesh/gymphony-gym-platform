@@ -56,8 +56,9 @@ import { Html5QrcodeScanner } from "html5-qrcode";
 import { supabase, supabaseUrl } from "@/supabase";
 import { startSubscriptionCheckout } from "@/lib/razorpay";
 import { hasAccess, FeatureName, LIMITS } from "@/lib/permissions";
-import { resolveSubscription, subscriptionHasFeature, nextTier, PLANS, formatINR } from "@/lib/plans";
+import { resolveSubscription, subscriptionHasFeature, nextTier, PLANS, formatINR, planAllows, requiredTierFor, type AppFeature, type PlanTier } from "@/lib/plans";
 import { PlanUsageMeter } from "@/components/PlanUsageMeter";
+import { UpgradeModal } from "@/components/UpgradeModal";
 import { isApprovedPayment } from "@/lib/revenue";
 import { InternationalPhoneInput } from "@/components/InternationalPhoneInput";
 import { MembersList } from "@/components/MembersList";
@@ -118,7 +119,7 @@ const navItems = [
   { name: "Members", icon: Users, feature: null },
   { name: "Attendance", icon: Calendar, feature: null },
   { name: "Revenue", icon: TrendingUp, feature: 'advanced_analytics' },
-  { name: "🏆 Leaderboard", icon: Trophy, feature: null, to: "/city-leaderboard" },
+  { name: "🏆 Leaderboard", icon: Trophy, feature: null, appFeature: "leaderboard" as AppFeature, to: "/city-leaderboard" },
   { name: "Inventory", icon: Package, feature: 'advanced_analytics' }, // Grouped under analytics for now
   { name: "Plans", icon: CreditCard, feature: null },
   { name: "Kiosk Mode", icon: Monitor, feature: null, to: "/kiosk" },
@@ -172,6 +173,8 @@ function DashboardPage() {
   const { user: authUser } = useAuth();
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  // Locked-feature upgrade prompt (nav click on a feature above the plan).
+  const [upgrade, setUpgrade] = useState<{ tier: PlanTier; label: string } | null>(null);
 
   // Tabs switch via state on the SAME route (not navigation), so the scroll
   // container keeps its position and looks like it "jumped". Reset it to top
@@ -1887,6 +1890,14 @@ function DashboardPage() {
     <DashboardErrorBoundary>
     <div className="relative w-full h-screen bg-slate-50 text-foreground flex flex-col overflow-hidden">
       <AmbientBackground />
+      {upgrade && (
+        <UpgradeModal
+          open={!!upgrade}
+          onClose={() => setUpgrade(null)}
+          requiredTier={upgrade.tier}
+          featureLabel={upgrade.label}
+        />
+      )}
       <AnimatePresence>
         {showRenewalBanner && (
           <motion.div
@@ -2056,12 +2067,20 @@ function DashboardPage() {
         
         <nav className="grow px-4 space-y-2">
           {navItems.map((item) => {
-            const hasFeatureAccess = subscriptionHasFeature(gymSettings, item.feature as FeatureName);
-            
+            const appFeature = (item as any).appFeature as AppFeature | undefined;
+            const hasFeatureAccess = appFeature
+              ? planAllows(gymSettings, appFeature)
+              : subscriptionHasFeature(gymSettings, item.feature as FeatureName);
+
             return (
               <button
                 key={item.name}
                 onClick={() => {
+                  // Locked feature → open the Upgrade modal instead of navigating.
+                  if (appFeature && !hasFeatureAccess) {
+                    setUpgrade({ tier: requiredTierFor(appFeature), label: item.name.replace(/^🏆\s*/, "") });
+                    return;
+                  }
                   if (item.to) {
                     navigate({ to: item.to as "/city-leaderboard" | "/kiosk" });
                     return;
@@ -2070,8 +2089,8 @@ function DashboardPage() {
                   setActiveTab(item.name);
                 }}
                 className={`flex items-center justify-between px-4 py-3 w-full rounded-xl transition-all ${
-                  activeTab === item.name 
-                    ? "bg-primary/10 text-primary font-medium" 
+                  activeTab === item.name
+                    ? "bg-primary/10 text-primary font-medium"
                     : "text-muted-foreground hover:bg-white/5"
                 }`}
               >
@@ -2124,11 +2143,20 @@ function DashboardPage() {
               </SheetHeader>
               <nav className="space-y-2">
                 {navItems.map((item) => {
-                  const hasFeatureAccess = subscriptionHasFeature(gymSettings, item.feature as FeatureName);
+                  const appFeature = (item as any).appFeature as AppFeature | undefined;
+                  const hasFeatureAccess = appFeature
+                    ? planAllows(gymSettings, appFeature)
+                    : subscriptionHasFeature(gymSettings, item.feature as FeatureName);
                   return (
                     <button
                       key={item.name}
                       onClick={() => {
+                        // Locked feature → open the Upgrade modal instead of navigating.
+                        if (appFeature && !hasFeatureAccess) {
+                          setUpgrade({ tier: requiredTierFor(appFeature), label: item.name.replace(/^🏆\s*/, "") });
+                          setIsMobileMenuOpen(false);
+                          return;
+                        }
                         if (item.to) {
                           navigate({ to: item.to as "/city-leaderboard" | "/kiosk" });
                           setIsMobileMenuOpen(false);

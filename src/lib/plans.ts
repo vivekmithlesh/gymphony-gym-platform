@@ -292,3 +292,97 @@ export function tierForFeature(feature: Feature): PlanTier {
 export function formatINR(n: number): string {
   return "₹" + Math.round(n).toLocaleString("en-IN");
 }
+
+// ===========================================================================
+// Feature → minimum-tier ACCESS MAP — the single source of truth for
+// route/nav/server gating. Plan ranks: starter=1, growth=2, pro=3. A plan
+// unlocks a feature when its rank >= the feature's required rank.
+//
+// This is intentionally a separate, explicit namespace from the marketing
+// `Feature` flags above so gating reads the same way on the client, the route
+// guard, and (mirrored) the server.
+// ===========================================================================
+
+export const PLAN_RANK: Record<PlanTier, number> = {
+  starter: 1,
+  growth: 2,
+  pro: 3,
+};
+
+export type AppFeature =
+  // starter (rank 1)
+  | "dashboard"
+  | "members"
+  | "attendance"
+  | "kiosk"
+  | "membership_plans"
+  | "activity_logs"
+  | "basic_revenue"
+  // growth (rank 2)
+  | "revenue_analytics"
+  | "pending_dues"
+  | "attendance_insights"
+  | "leaderboard"
+  | "advanced_reporting"
+  // pro (rank 3)
+  | "multi_staff"
+  | "advanced_analytics"
+  | "multi_branch"
+  | "ai_features";
+
+export const FEATURE_MIN_TIER: Record<AppFeature, PlanTier> = {
+  dashboard: "starter",
+  members: "starter",
+  attendance: "starter",
+  kiosk: "starter",
+  membership_plans: "starter",
+  activity_logs: "starter",
+  basic_revenue: "starter",
+
+  revenue_analytics: "growth",
+  pending_dues: "growth",
+  attendance_insights: "growth",
+  leaderboard: "growth",
+  advanced_reporting: "growth",
+
+  multi_staff: "pro",
+  advanced_analytics: "pro",
+  multi_branch: "pro",
+  ai_features: "pro",
+};
+
+/** Minimum tier that unlocks an app feature (drives "Upgrade to X" copy). */
+export function requiredTierFor(feature: AppFeature): PlanTier {
+  return FEATURE_MIN_TIER[feature];
+}
+
+/** Pure rank comparison: does a tier unlock this app feature? */
+export function tierUnlocks(tier: PlanTier, feature: AppFeature): boolean {
+  return PLAN_RANK[tier] >= PLAN_RANK[FEATURE_MIN_TIER[feature]];
+}
+
+/** Trial/expiry-aware feature access for a gym_settings row. */
+export function planAllows(
+  s: SubscriptionLike | null | undefined,
+  feature: AppFeature
+): boolean {
+  return tierUnlocks(resolveSubscription(s).tier, feature);
+}
+
+// ---------------------------------------------------------------------------
+// Pro honesty: Pro's headline features are not built yet, so we must never let
+// anyone PAY for them. These exact highlight strings (from PLANS.pro.highlights)
+// render a "Coming soon" badge, and the Pro CTA becomes "Join waitlist".
+// ---------------------------------------------------------------------------
+export const COMING_SOON_HIGHLIGHTS: ReadonlySet<string> = new Set([
+  "Multi-staff support",
+  "Advanced analytics",
+  "Future AI features",
+]);
+
+/** While true, Pro cannot be purchased (waitlist only). */
+export const PRO_IS_WAITLIST = true;
+
+export function isComingSoonHighlight(label: string): boolean {
+  return COMING_SOON_HIGHLIGHTS.has(label);
+}

@@ -52,6 +52,8 @@ import {
   resolveSubscription,
   formatINR,
   TRIAL_DAYS,
+  PRO_IS_WAITLIST,
+  isComingSoonHighlight,
   type PlanTier,
   type BillingCycle,
 } from "@/lib/plans";
@@ -1809,6 +1811,8 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
                     {PLAN_LIST.map((p) => {
                       const isCurrent = billingSub.tier === p.id && billingSub.status === "active";
                       const priceNum = billingCycle === "yearly" ? p.priceYearlyPerMonth : p.priceMonthly;
+                      // Pro features aren't built yet — never let anyone pay for them.
+                      const isWaitlist = p.id === "pro" && PRO_IS_WAITLIST;
                       return (
                         <Card key={p.id} className={`relative flex flex-col overflow-hidden shadow-soft ${p.popular ? "border-none bg-linear-to-b from-[#2a2545] to-[#1e1b34] text-white shadow-glow" : "border-border bg-white"} ${isCurrent ? "ring-2 ring-primary" : ""}`}>
                           {p.popular && (
@@ -1830,23 +1834,43 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
                           <CardContent className="pt-0">
                             <Button
                               variant={p.popular ? "default" : "outline"}
-                              onClick={() => handleSelectPlan(p.id, billingCycle)}
+                              onClick={() =>
+                                isWaitlist
+                                  ? toast.success("You're on the Pro waitlist — we'll email you the moment it launches.")
+                                  : handleSelectPlan(p.id, billingCycle)
+                              }
                               disabled={isProcessingBilling || isCurrent}
                               className={`h-12 w-full rounded-full font-black ${p.popular ? "bg-primary text-white" : "border-slate-200 text-slate-900"}`}
                             >
-                              {isProcessingBilling ? <Loader2 className="h-5 w-5 animate-spin" /> : isCurrent ? "Current Plan" : billingSub.isTrial ? `Choose ${p.name}` : `Upgrade to ${p.name}`}
+                              {isProcessingBilling
+                                ? <Loader2 className="h-5 w-5 animate-spin" />
+                                : isCurrent
+                                  ? "Current Plan"
+                                  : isWaitlist
+                                    ? "Join waitlist"
+                                    : billingSub.isTrial
+                                      ? `Choose ${p.name}`
+                                      : `Upgrade to ${p.name}`}
                             </Button>
                           </CardContent>
                           <CardContent className="grow">
                             <div className="space-y-3 pt-4">
-                              {p.highlights.map((f) => (
-                                <div key={f} className={`flex items-center gap-3 text-sm font-medium ${p.popular ? "text-slate-300" : "text-slate-600"}`}>
-                                  <div className={`flex h-5 w-5 items-center justify-center rounded-full ${p.popular ? "bg-white/10" : "bg-primary/5"}`}>
-                                    <CheckCircle2 className="h-3 w-3 shrink-0 text-primary" />
+                              {p.highlights.map((f) => {
+                                const comingSoon = isComingSoonHighlight(f);
+                                return (
+                                  <div key={f} className={`flex items-center gap-2 text-sm font-medium ${comingSoon ? "opacity-60" : ""} ${p.popular ? "text-slate-300" : "text-slate-600"}`}>
+                                    <div className={`flex h-5 w-5 items-center justify-center rounded-full ${p.popular ? "bg-white/10" : "bg-primary/5"}`}>
+                                      <CheckCircle2 className="h-3 w-3 shrink-0 text-primary" />
+                                    </div>
+                                    <span>{f}</span>
+                                    {comingSoon && (
+                                      <Badge variant="outline" className={`ml-auto shrink-0 border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${p.popular ? "border-white/20 text-slate-300" : "border-amber-300 bg-amber-50 text-amber-700"}`}>
+                                        Coming soon
+                                      </Badge>
+                                    )}
                                   </div>
-                                  {f}
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           </CardContent>
                         </Card>

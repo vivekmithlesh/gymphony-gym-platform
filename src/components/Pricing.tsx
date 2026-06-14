@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Check, Sparkles } from "lucide-react";
 import { Link } from "@tanstack/react-router";
-import { PLAN_LIST, formatINR, TRIAL_DAYS, type BillingCycle } from "@/lib/plans";
+import { PLAN_LIST, formatINR, TRIAL_DAYS, isComingSoonHighlight, type BillingCycle } from "@/lib/plans";
 
 export function Pricing() {
   const [cycle, setCycle] = useState<BillingCycle>("monthly");
@@ -105,18 +105,26 @@ export function Pricing() {
                   </Link>
 
                   <ul className="mt-8 space-y-3">
-                    {p.highlights.map((f) => (
-                      <li key={f} className="flex items-start gap-3 text-sm">
-                        <span
-                          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
-                            p.popular ? "bg-primary-glow/20 text-primary-glow" : "bg-primary/10 text-primary"
-                          }`}
-                        >
-                          <Check className="h-3 w-3" />
-                        </span>
-                        {f}
-                      </li>
-                    ))}
+                    {p.highlights.map((f) => {
+                      const comingSoon = isComingSoonHighlight(f);
+                      return (
+                        <li key={f} className={`flex items-start gap-3 text-sm ${comingSoon ? "opacity-60" : ""}`}>
+                          <span
+                            className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                              p.popular ? "bg-primary-glow/20 text-primary-glow" : "bg-primary/10 text-primary"
+                            }`}
+                          >
+                            <Check className="h-3 w-3" />
+                          </span>
+                          <span>{f}</span>
+                          {comingSoon && (
+                            <span className="ml-auto shrink-0 rounded-full border border-amber-300/60 bg-amber-100/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-500">
+                              Coming soon
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               </motion.div>
