@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { CityLeaderboard } from "@/components/CityLeaderboard";
 import { FeatureRouteGuard } from "@/components/FeatureRouteGuard";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 export const Route = createFileRoute("/city-leaderboard")({
   head: () => ({
@@ -18,10 +19,12 @@ export const Route = createFileRoute("/city-leaderboard")({
 
 function CityLeaderboardPage() {
   return (
-    <DashboardLayout activeTab="🏆 Leaderboard">
-      <FeatureRouteGuard feature="leaderboard" featureLabel="City Leaderboard">
-        <CityLeaderboard />
-      </FeatureRouteGuard>
-    </DashboardLayout>
+    <ProtectedRoute requiredRole="owner">
+      <DashboardLayout activeTab="🏆 Leaderboard">
+        <FeatureRouteGuard feature="leaderboard" featureLabel="City Leaderboard">
+          <CityLeaderboard />
+        </FeatureRouteGuard>
+      </DashboardLayout>
+    </ProtectedRoute>
   );
 }

@@ -14,6 +14,7 @@ import { supabase } from "@/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
 import { postAuthDestination, readRedirectParam, isSafeRedirectPath } from "@/lib/auth-redirect";
+import { ensureMemberProfile } from "@/lib/member-signup";
 import { logEvent } from "@/lib/logger";
 // Member-login enforces member-only flow; avoid role fallback logic.
 
@@ -68,69 +69,6 @@ function MemberLoginPage() {
 
   const onLoginInvalid = () => {
     toast.error("Please enter both email and password.");
-  };
-
-  const ensureMemberProfile = async (user: any) => {
-    try {
-      const { data: profileRow, error: profileFetchError } = await supabase
-        .from("profiles")
-        .select("id, gym_id")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (profileFetchError) {
-        console.error("Error checking profile:", profileFetchError);
-      }
-
-      // 1. Create the profile row if missing.
-      if (!profileRow) {
-        const { error: profileInsertError } = await supabase
-          .from("profiles")
-          .insert([{
-            id: user.id,
-            full_name: user.user_metadata?.full_name || user.email?.split("@")[0] || "Member",
-            email: user.email,
-            status: "Active",
-            role: "member",
-          }]);
-
-        if (profileInsertError) {
-          console.error("Profile insert failed:", profileInsertError);
-        }
-      }
-
-      // 2. Sync with the members table (for owner visibility).
-      const { data: existingMember, error: memberFetchError } = await supabase
-        .from("members")
-        .select("id")
-        .eq("id", user.id)
-        .maybeSingle();
-
-      if (memberFetchError) {
-        console.error("Error checking member table:", memberFetchError);
-      }
-
-      if (!existingMember) {
-        const { error: memberInsertError } = await supabase
-          .from("members")
-          .insert([
-            {
-              id: user.id,
-              full_name: user.user_metadata?.full_name || user.email?.split("@")[0] || "New Member",
-              email: user.email,
-              status: "Active",
-              joining_date: new Date().toISOString().split("T")[0],
-              role: "member",
-            },
-          ]);
-
-        if (memberInsertError) {
-          console.error("Member insert failed:", memberInsertError);
-        }
-      }
-    } catch (err) {
-      console.error("Unexpected error in ensureMemberProfile:", err);
-    }
   };
 
   const onLoginSubmit = async (data: MemberLoginFormValues) => {
@@ -320,7 +258,7 @@ function MemberLoginPage() {
                   Don’t have an account?{" "}
                   <button
                     type="button"
-                    onClick={() => navigate({ to: "/signup" })}
+                    onClick={() => navigate({ to: "/member-signup" })}
                     className="font-semibold text-primary underline-offset-4 hover:underline"
                   >
                     Sign up

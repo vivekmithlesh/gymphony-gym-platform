@@ -234,27 +234,25 @@ export function BulkOnboard({ open, onClose, gymId, gymOwnerId, gymName, plans, 
   //   • phone   — the EXACT E.164 number the owner registered
   //   • token   — the pending member's row id (acts as a one-time claim token)
   //
-  // Auth routing rules to implement on /signup:
-  //   1. Read `phone` + `token` from the URL and look up the matching
-  //      members row (status = 'pending_signup', id = token, mobile_number = phone).
-  //   2. PRE-FILL the phone field from the URL and render it DISABLED /
-  //      read-only — the member must NOT be able to change it. Their account
-  //      identity is permanently tied to the number the owner registered.
-  //   3. On successful signup, set members.auth_user_id = the new auth uid and
-  //      flip status 'pending_signup' -> 'Active'. Reject the flow if the phone
-  //      in the URL doesn't match the token's row (prevents number swapping).
-  //   4. Once active, their Virtual ID (QR = member id) is already what the
-  //      Kiosk scans, so attendance linking is automatic — no extra step.
-  // For production, sign `token` (e.g. a short-lived JWT) instead of using the
-  // raw row id, so links can't be guessed or replayed.
+  // The MEMBER signup route (/member-signup) honours these params:
+  //   1. Read `phone` + `token` from the URL and bind the matching members row
+  //      (status = 'pending_signup', id = token, mobile_number = phone).
+  //   2. The phone field is PRE-FILLED + DISABLED — the member can't change it;
+  //      their identity is tied to the number the owner registered.
+  //   3. On successful signup, members.auth_user_id = the new auth uid and
+  //      status flips 'pending_signup' -> 'Active' (see claimInvite()).
+  //   4. Once active, their Virtual ID (QR = member id) is what the Kiosk scans,
+  //      so attendance linking is automatic.
+  // For production, sign `token` (e.g. a short-lived JWT) instead of the raw row
+  // id, so links can't be guessed or replayed.
   // =========================================================================
   const buildInviteLink = (memberId: string, phoneE164: string) => {
     const params = new URLSearchParams({
       gym_id: gymId ?? "",
-      phone: phoneE164,   // signup MUST pre-fill + lock this field
+      phone: phoneE164,   // member-signup pre-fills + locks this field
       token: memberId,    // TODO(auth): replace raw id with a signed token
     });
-    return `${window.location.origin}/signup?${params.toString()}`;
+    return `${window.location.origin}/member-signup?${params.toString()}`;
   };
 
   const buildInvite = (member: {

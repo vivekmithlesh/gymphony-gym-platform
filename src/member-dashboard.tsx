@@ -444,7 +444,7 @@ export default function MemberDashboard() {
       try {
         const user = authUser;
         if (!user) {
-          navigate({ to: "/login" });
+          navigate({ to: "/member-login" });
           return;
         }
 
@@ -660,7 +660,7 @@ export default function MemberDashboard() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    navigate({ to: "/login" });
+    navigate({ to: "/member-login" });
   };
 
   // Member navigation — same shape/order convention as the Owner Dashboard's
@@ -750,7 +750,7 @@ export default function MemberDashboard() {
     return (
       <div className="flex flex-col items-center justify-center h-screen gap-4 bg-gray-50">
         <p className="text-lg text-gray-600">You are not logged in.</p>
-        <Button onClick={() => navigate({ to: "/login" })}>Go to Login</Button>
+        <Button onClick={() => navigate({ to: "/member-login" })}>Go to Login</Button>
       </div>
     );
   }

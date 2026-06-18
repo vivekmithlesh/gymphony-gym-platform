@@ -17,7 +17,9 @@ import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RefundRouteImport } from './routes/refund'
 import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as OwnerDashboardRouteImport } from './routes/owner-dashboard'
+import { Route as MemberSignupRouteImport } from './routes/member-signup'
 import { Route as MemberLoginRouteImport } from './routes/member-login'
+import { Route as MemberJoinRouteImport } from './routes/member-join'
 import { Route as MemberDashboardRouteImport } from './routes/member-dashboard'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as KioskModeRouteImport } from './routes/kiosk-mode'
@@ -71,9 +73,19 @@ const OwnerDashboardRoute = OwnerDashboardRouteImport.update({
   path: '/owner-dashboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MemberSignupRoute = MemberSignupRouteImport.update({
+  id: '/member-signup',
+  path: '/member-signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const MemberLoginRoute = MemberLoginRouteImport.update({
   id: '/member-login',
   path: '/member-login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MemberJoinRoute = MemberJoinRouteImport.update({
+  id: '/member-join',
+  path: '/member-join',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MemberDashboardRoute = MemberDashboardRouteImport.update({
@@ -147,7 +159,9 @@ export interface FileRoutesByFullPath {
   '/kiosk-mode': typeof KioskModeRoute
   '/login': typeof LoginRoute
   '/member-dashboard': typeof MemberDashboardRoute
+  '/member-join': typeof MemberJoinRoute
   '/member-login': typeof MemberLoginRoute
+  '/member-signup': typeof MemberSignupRoute
   '/owner-dashboard': typeof OwnerDashboardRoute
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
@@ -170,7 +184,9 @@ export interface FileRoutesByTo {
   '/kiosk-mode': typeof KioskModeRoute
   '/login': typeof LoginRoute
   '/member-dashboard': typeof MemberDashboardRoute
+  '/member-join': typeof MemberJoinRoute
   '/member-login': typeof MemberLoginRoute
+  '/member-signup': typeof MemberSignupRoute
   '/owner-dashboard': typeof OwnerDashboardRoute
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
@@ -194,7 +210,9 @@ export interface FileRoutesById {
   '/kiosk-mode': typeof KioskModeRoute
   '/login': typeof LoginRoute
   '/member-dashboard': typeof MemberDashboardRoute
+  '/member-join': typeof MemberJoinRoute
   '/member-login': typeof MemberLoginRoute
+  '/member-signup': typeof MemberSignupRoute
   '/owner-dashboard': typeof OwnerDashboardRoute
   '/privacy': typeof PrivacyRoute
   '/refund': typeof RefundRoute
@@ -219,7 +237,9 @@ export interface FileRouteTypes {
     | '/kiosk-mode'
     | '/login'
     | '/member-dashboard'
+    | '/member-join'
     | '/member-login'
+    | '/member-signup'
     | '/owner-dashboard'
     | '/privacy'
     | '/refund'
@@ -242,7 +262,9 @@ export interface FileRouteTypes {
     | '/kiosk-mode'
     | '/login'
     | '/member-dashboard'
+    | '/member-join'
     | '/member-login'
+    | '/member-signup'
     | '/owner-dashboard'
     | '/privacy'
     | '/refund'
@@ -265,7 +287,9 @@ export interface FileRouteTypes {
     | '/kiosk-mode'
     | '/login'
     | '/member-dashboard'
+    | '/member-join'
     | '/member-login'
+    | '/member-signup'
     | '/owner-dashboard'
     | '/privacy'
     | '/refund'
@@ -289,7 +313,9 @@ export interface RootRouteChildren {
   KioskModeRoute: typeof KioskModeRoute
   LoginRoute: typeof LoginRoute
   MemberDashboardRoute: typeof MemberDashboardRoute
+  MemberJoinRoute: typeof MemberJoinRoute
   MemberLoginRoute: typeof MemberLoginRoute
+  MemberSignupRoute: typeof MemberSignupRoute
   OwnerDashboardRoute: typeof OwnerDashboardRoute
   PrivacyRoute: typeof PrivacyRoute
   RefundRoute: typeof RefundRoute
@@ -361,11 +387,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OwnerDashboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/member-signup': {
+      id: '/member-signup'
+      path: '/member-signup'
+      fullPath: '/member-signup'
+      preLoaderRoute: typeof MemberSignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/member-login': {
       id: '/member-login'
       path: '/member-login'
       fullPath: '/member-login'
       preLoaderRoute: typeof MemberLoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/member-join': {
+      id: '/member-join'
+      path: '/member-join'
+      fullPath: '/member-join'
+      preLoaderRoute: typeof MemberJoinRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/member-dashboard': {
@@ -465,7 +505,9 @@ const rootRouteChildren: RootRouteChildren = {
   KioskModeRoute: KioskModeRoute,
   LoginRoute: LoginRoute,
   MemberDashboardRoute: MemberDashboardRoute,
+  MemberJoinRoute: MemberJoinRoute,
   MemberLoginRoute: MemberLoginRoute,
+  MemberSignupRoute: MemberSignupRoute,
   OwnerDashboardRoute: OwnerDashboardRoute,
   PrivacyRoute: PrivacyRoute,
   RefundRoute: RefundRoute,
