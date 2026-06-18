@@ -1,4 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { buildJoinUrl } from "@/lib/app-url";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "@tanstack/react-router";
@@ -102,8 +104,16 @@ export const Route = createFileRoute("/dashboard")({
       },
     ],
   }),
-  component: DashboardPage,
+  component: GuardedDashboard,
 });
+
+function GuardedDashboard() {
+  return (
+    <ProtectedRoute requiredRole="owner">
+      <DashboardPage />
+    </ProtectedRoute>
+  );
+}
 
 // Persistent Data Cache
 let statsCache = {
@@ -1288,7 +1298,7 @@ function DashboardPage() {
   const handleCopyLink = () => {
     try {
       const ownerGymId = gymSettings?.id ?? currentUserId ?? "";
-      const inviteLink = `${window.location.origin}/signup?gym_id=${encodeURIComponent(ownerGymId)}`;
+      const inviteLink = buildJoinUrl(ownerGymId);
       navigator.clipboard.writeText(inviteLink);
       toast.success("Invite link copied to clipboard");
     } catch (err) {
@@ -2479,7 +2489,7 @@ function DashboardPage() {
                   <div className="mx-auto w-48 h-48 bg-slate-50 rounded-3xl border-2 border-slate-100 flex items-center justify-center p-4">
                       {(() => {
                         const ownerGymId = gymSettings?.id ?? currentUserId ?? "";
-                        const inviteLink = `${window.location.origin}/signup?gym_id=${encodeURIComponent(ownerGymId)}`;
+                        const inviteLink = buildJoinUrl(ownerGymId);
                         return <QRCodeSVG value={inviteLink} size={320} className="w-full h-full" />;
                       })()}
                     </div>
@@ -2487,7 +2497,7 @@ function DashboardPage() {
                     <div className="space-y-2">
                       <p className="text-sm text-slate-700">Invite Link</p>
                       <div className="wrap-break-word rounded-2xl bg-slate-50 p-3 text-xs text-slate-700 border border-slate-100">
-                        {`${window.location.origin}/signup?gym_id=${encodeURIComponent(gymSettings?.id ?? currentUserId ?? "")}`}
+                        {buildJoinUrl(gymSettings?.id ?? currentUserId ?? "")}
                       </div>
                     </div>
 

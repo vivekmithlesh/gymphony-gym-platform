@@ -30,6 +30,7 @@ import { useState } from "react";
 import { getDashboardPathForRole, resolveUserRole } from "@/lib/auth-role";
 import { IndianMobileInput } from "@/components/IndianMobileInput";
 import { isValidIndianMobile, looksLikeIndianMobile, toIndianLocal, toIndianE164 } from "@/lib/phone";
+import { registerOwner } from "@/lib/owner-signup";
 import { postAuthDestination, readRedirectParam, isSafeRedirectPath } from "@/lib/auth-redirect";
 
 const signupSchema = z.object({
@@ -118,63 +119,36 @@ function LoginPage() {
   const onSignupSubmit = async (data: SignupFormValues) => {
     setIsLoading(true);
     try {
-      // 1. Create the auth user (role stored in user_metadata).
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // Owner signup goes through the shared, server-authoritative path
+      // (creates the gym + stamps role='owner' via app_register_owner). Member
+      // signup is a separate flow at /member-signup.
+      const outcome = await registerOwner({
+        gymName: data.gymName,
+        city: data.city,
         email: data.email,
+        mobile: data.mobile,
         password: data.password,
-        options: { data: { role: "owner" } },
       });
 
-      if (authError) {
-        const msg = String(authError.message || "").toLowerCase();
-        if (
-          msg.includes("already registered") ||
-          msg.includes("already in use") ||
-          msg.includes("user already")
-        ) {
-          toast.error("Email already in use. Please log in instead.");
-        } else {
-          toast.error(authError.message || "Could not create your account.");
-        }
+      if (outcome.status === "exists") {
+        toast.error("Email already in use. Please log in instead.");
+        setActiveTab("login");
         return;
       }
 
-      // 2. Upsert the gym profile (onConflict avoids duplicate-key errors).
-      const { error: profileError } = await supabase
-        .from("gym_profiles")
-        .upsert(
-          [
-            {
-              id: authData.user?.id, // Link profile to auth user
-              gym_name: data.gymName,
-              city: data.city,
-              email: data.email,
-              mobile_number: toIndianE164(data.mobile),
-              role: "owner",
-            },
-          ],
-          { onConflict: "id" }
-        );
-
-      if (profileError) {
-        if (
-          String(profileError.message || "").toLowerCase().includes("duplicate") ||
-          String(profileError.code || "").includes("23505")
-        ) {
-          toast.error("This account already exists. Please log in instead.");
+      if (outcome.status === "rate_limited") {
+        if (outcome.ownerExists) {
+          toast.success("Account already exists — taking you to your dashboard.");
+          navigate({ to: getDashboardPathForRole("owner"), replace: true });
           return;
         }
-        toast.error(profileError.message || "Could not set up your gym profile.");
+        toast.error("Too many attempts. Please wait a moment and try again, or log in.");
         return;
       }
 
+      // status === "created" — email confirmation OFF gives a session; ON does not.
       signupForm.reset();
-
-      // If email confirmation is ON in Supabase, signUp returns NO session — so
-      // navigating to /dashboard would just bounce back to /login (the "refresh"
-      // loop). Only redirect when we actually have a session; otherwise tell the
-      // owner to confirm their email, then switch them to the Log In tab.
-      if (authData.session) {
+      if (outcome.hasSession) {
         toast.success("Account created! Setting up your dashboard…");
         navigate({ to: getDashboardPathForRole("owner"), replace: true });
       } else {

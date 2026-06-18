@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import MemberDashboard from "@/member-dashboard";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 
 export const Route = createFileRoute("/member-dashboard")({
   head: () => ({
@@ -12,5 +13,13 @@ export const Route = createFileRoute("/member-dashboard")({
       },
     ],
   }),
-  component: MemberDashboard,
+  component: GuardedMemberDashboard,
 });
+
+function GuardedMemberDashboard() {
+  return (
+    <ProtectedRoute requiredRole="member">
+      <MemberDashboard />
+    </ProtectedRoute>
+  );
+}

@@ -83,13 +83,15 @@ function AuthRedirects() {
     if (isLoading) return;
 
     const isOwnerAuthPage = currentPath === "/signup" || currentPath === "/login";
-    const isMemberAuthPage = currentPath === "/member-login";
+    const isMemberAuthPage = currentPath === "/member-login" || currentPath === "/member-signup";
     const isOwnerProtected =
       currentPath.startsWith("/dashboard") ||
       currentPath === "/city-leaderboard" ||
       currentPath === "/kiosk" ||
       currentPath === "/kiosk-mode";
-    const isMemberProtected = currentPath.startsWith("/member-dashboard");
+    // /member-join is a signed-in member screen (pick a gym), not an auth page.
+    const isMemberProtected =
+      currentPath.startsWith("/member-dashboard") || currentPath === "/member-join";
     const isLandingPage = currentPath === "/";
 
     if (session) {
