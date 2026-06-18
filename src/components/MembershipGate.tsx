@@ -3,7 +3,6 @@ import { QRCodeSVG } from "qrcode.react";
 import {
   Smartphone,
   Banknote,
-  Zap,
   Loader2,
   CheckCircle2,
   Clock,
@@ -40,20 +39,20 @@ interface MembershipGateProps {
   memberId: string;
   gym: GymContext;
   plans: GatePlan[];
-  /** Called the instant the membership becomes Active (owner approval or mock). */
+  /** Called the instant the membership becomes Active (owner approval). */
   onActivated: () => void;
 }
 
-type Phase = "select" | "method" | "upi" | "online" | "waiting";
-type PayMethod = "Online" | "Cash" | "UPI";
+type Phase = "select" | "method" | "upi" | "waiting";
+type PayMethod = "Cash" | "UPI";
 
 const ACTIVE = "active";
 
 // Full-screen gate shown to a member who has joined a gym (gym_id set) but is not
-// yet Active. Handles the unified hybrid checkout (Online / Cash / UPI), the
-// "waiting for owner approval" lock, and the realtime + poll auto-unlock. All
-// three payment methods reuse the existing payments + approve_payment rails; only
-// the "Pay Online" mock self-activates (and only when the gym opts in server-side).
+// yet Active. Handles manual checkout (UPI / Cash), the "waiting for owner
+// approval" lock, and the realtime + poll auto-unlock. Both methods record a
+// 'pending_verification' payments row that the owner approves manually — there is
+// no self-activation path.
 export function MembershipGate({ memberId, gym, plans, onActivated }: MembershipGateProps) {
   const [phase, setPhase] = useState<Phase>("waiting"); // assume waiting until we know
   const [plan, setPlan] = useState<GatePlan | null>(null);
@@ -192,53 +191,6 @@ export function MembershipGate({ memberId, gym, plans, onActivated }: Membership
     toast.success("Payment submitted! The gym will confirm it shortly.");
   };
 
-  // Pay Online: create the pending row, then move to the mock gateway step.
-  const startOnline = async () => {
-    setBusy(true);
-    const id = await createPending("Online");
-    setBusy(false);
-    if (!id) return;
-    setPendingPaymentId(id);
-    setPhase("online");
-  };
-
-  const simulateOnline = async () => {
-    if (!pendingPaymentId) return;
-    setBusy(true);
-    try {
-      const { data, error } = await supabase.rpc("app_simulate_online_payment", {
-        p_payment_id: pendingPaymentId,
-      });
-      if (error) throw error;
-      const result = (data ?? {}) as { success: boolean; error?: string };
-      if (!result.success) {
-        // Mock disabled for this gym, etc. — fall back to the waiting lock so the
-        // owner can still approve manually.
-        logEvent("payment", "online-failed", { gymId: gym.id, memberId, reason: result.error });
-        toast.error(result.error || "Could not complete the online payment.");
-        setPhase("waiting");
-        return;
-      }
-      logEvent("payment", "online-success", {
-        gymId: gym.id,
-        memberId,
-        paymentId: pendingPaymentId,
-      });
-      await checkActivated();
-    } catch (err: any) {
-      logEvent("payment", "online-error", {
-        gymId: gym.id,
-        memberId,
-        error: String(err?.message || err),
-      });
-      console.error("simulate online payment failed:", err);
-      toast.error(err?.message || "Online payment failed. Please try Pay at Desk.");
-      setPhase("waiting");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const Shell = ({ children }: { children: React.ReactNode }) => (
     <div className="flex min-h-screen w-full items-center justify-center bg-background px-4 py-10 text-foreground">
       <div className="w-full max-w-3xl">{children}</div>
@@ -263,47 +215,6 @@ export function MembershipGate({ memberId, gym, plans, onActivated }: Membership
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> Listening for approval…
             </div>
-          </CardContent>
-        </Card>
-      </Shell>
-    );
-  }
-
-  // ── Online mock gateway ───────────────────────────────────────────────────
-  if (phase === "online") {
-    return (
-      <Shell>
-        <Card className="mx-auto max-w-md border-white/10 bg-white/5 backdrop-blur-xl">
-          <CardContent className="flex flex-col items-center gap-5 p-8 text-center">
-            <Zap className="h-12 w-12 text-violet-500" />
-            <h2 className="text-xl font-bold">Pay Online</h2>
-            <p className="text-sm text-muted-foreground">
-              {plan?.plan_name} · ₹{plan?.price.toLocaleString("en-IN")}
-            </p>
-            <p className="rounded-xl border border-amber-200/40 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
-              A real gateway (Razorpay/UPI) will go here. For now, simulate a successful payment to
-              activate instantly.
-            </p>
-            <Button
-              onClick={simulateOnline}
-              disabled={busy}
-              className="h-12 w-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 font-bold text-white hover:from-violet-500 hover:to-fuchsia-500"
-            >
-              {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-              Simulate Online Payment
-            </Button>
-            <button
-              onClick={() => setPhase("waiting")}
-              className="text-xs text-muted-foreground underline-offset-2 hover:underline"
-            >
-              I'll pay another way — wait for approval
-            </button>
-            <LegalLinksFooter
-              termsUrl={gym.terms_url}
-              privacyUrl={gym.privacy_url}
-              refundUrl={gym.refund_url}
-              className="border-t border-white/10 pt-3"
-            />
           </CardContent>
         </Card>
       </Shell>
@@ -386,18 +297,6 @@ export function MembershipGate({ memberId, gym, plans, onActivated }: Membership
                 {plan.plan_name} · ₹{plan.price.toLocaleString("en-IN")} · {plan.duration_days} days
               </p>
             </div>
-
-            <button
-              onClick={startOnline}
-              disabled={busy}
-              className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-left transition-colors hover:border-primary/40 disabled:opacity-60"
-            >
-              <Zap className="h-6 w-6 shrink-0 text-violet-500" />
-              <div>
-                <p className="font-bold">Pay Online</p>
-                <p className="text-xs text-muted-foreground">Card / UPI gateway — instant activation</p>
-              </div>
-            </button>
 
             <button
               onClick={() => setPhase("upi")}

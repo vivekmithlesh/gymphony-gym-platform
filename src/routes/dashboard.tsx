@@ -56,7 +56,6 @@ import { toast } from "sonner";
 import { QRCodeSVG } from "qrcode.react";
 import { Html5QrcodeScanner } from "html5-qrcode";
 import { supabase, supabaseUrl } from "@/supabase";
-import { startSubscriptionCheckout } from "@/lib/razorpay";
 import { hasAccess, FeatureName, LIMITS } from "@/lib/permissions";
 import { resolveSubscription, subscriptionHasFeature, nextTier, PLANS, formatINR, planAllows, requiredTierFor, type AppFeature, type PlanTier } from "@/lib/plans";
 import { PlanUsageMeter } from "@/components/PlanUsageMeter";
@@ -236,7 +235,6 @@ function DashboardPage() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isTrialExpired, setIsTrialExpired] = useState(false);
   const [isLimitReachedModalOpen, setIsLimitReachedModalOpen] = useState(false);
-  const [isProcessingUpgrade, setIsProcessingUpgrade] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [liveMemberCount, setLiveMemberCount] = useState(statsCache.liveMemberCount);
   const [totalMembersCount, setTotalMembersCount] = useState(statsCache.totalMembersCount);
@@ -1481,25 +1479,6 @@ function DashboardPage() {
       }
     };
   }, [isScanQROpen, initializeCheckInScanner]);
-
-  const handleUpgradePayment = async () => {
-    if (!currentUserId) return;
-    // Upgrade to the next tier via Razorpay. The client never writes the plan —
-    // the verified webhook does (gym_settings plan columns are locked down).
-    const target = nextTier(resolveSubscription(gymSettings).tier) ?? "growth";
-    await startSubscriptionCheckout({
-      tier: target,
-      cycle: "monthly",
-      ownerId: currentUserId,
-      ownerEmail: gymSettings?.owner_email,
-      ownerName: gymSettings?.gym_name,
-      setProcessing: setIsProcessingUpgrade,
-      onActivated: () => {
-        setIsLimitReachedModalOpen(false);
-        fetchGymSettings(currentUserId);
-      },
-    });
-  };
 
   useEffect(() => {
     if (dashboardFatalErrorRef.current) {

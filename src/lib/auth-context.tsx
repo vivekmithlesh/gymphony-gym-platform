@@ -33,6 +33,8 @@ interface AuthContextValue {
   user: User | null;
   /** "owner" | "member" | null — resolved from the DB after sign-in. */
   role: UserRole | null;
+  /** True when the signed-in user is a platform admin (profiles.is_platform_admin). */
+  isPlatformAdmin: boolean;
   /**
    * True until the FIRST session check resolves. Gate UI on this to avoid the
    * flicker of rendering a logged-out view before Supabase confirms the session.
@@ -54,6 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
+  const [isPlatformAdmin, setIsPlatformAdmin] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [roleResolved, setRoleResolved] = useState(false);
 
@@ -75,19 +78,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (!nextSession?.user) {
         setRole(null);
+        setIsPlatformAdmin(false);
         setRoleResolved(true);
         return;
       }
 
       setRoleResolved(false);
       try {
-        const resolved = await resolveUserRole(nextSession.user);
+        const [resolved, adminRes] = await Promise.all([
+          resolveUserRole(nextSession.user),
+          supabase.from("profiles").select("is_platform_admin").eq("id", nextSession.user.id).maybeSingle(),
+        ]);
         if (!active || token !== applyToken.current) return; // superseded
         setRole(resolved);
+        setIsPlatformAdmin(Boolean(adminRes.data?.is_platform_admin));
       } catch (err) {
         if (!active || token !== applyToken.current) return;
         console.warn("[Auth] role resolution failed:", err);
         setRole(null);
+        setIsPlatformAdmin(false);
       } finally {
         if (active && token === applyToken.current) setRoleResolved(true);
       }
@@ -128,12 +137,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setSession(null);
     setUser(null);
     setRole(null);
+    setIsPlatformAdmin(false);
     setRoleResolved(true);
   };
 
   return (
     <AuthContext.Provider
-      value={{ session, user, role, isLoading, roleResolved, signOut }}
+      value={{ session, user, role, isPlatformAdmin, isLoading, roleResolved, signOut }}
     >
       {children}
     </AuthContext.Provider>

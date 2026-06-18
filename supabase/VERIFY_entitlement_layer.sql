@@ -2,7 +2,7 @@
 -- WAVE 0 — LIVE DB VERIFICATION (read-only)
 -- =====================================================================
 -- Purpose: confirm whether the entitlement / subscription-security /
--- leaderboard-gate layer (migrations 20260606–20260623) is ACTUALLY
+-- leaderboard-gate layer (migrations 20260606–20260629) is ACTUALLY
 -- applied to the live database. The application code assumes these
 -- objects exist; if they do not, the security guarantees (plan-column
 -- lockdown, member-limit enforcement, leaderboard gating, payment RLS)
@@ -71,7 +71,26 @@ with checks(kind, object_name, present) as (
   union all select 'index',    'payments_utr_unique_idx', exists (select 1 from pg_indexes where schemaname='public' and indexname='payments_utr_unique_idx')
   union all select 'table',    'payment_audit',         exists (select 1 from information_schema.tables where table_schema='public' and table_name='payment_audit')
   union all select 'trigger',  'trg_payment_audit on payments', exists (select 1 from pg_trigger where tgname='trg_payment_audit' and not tgisinternal)
-  union all select 'config',   'mock_payments_enabled gate', exists (select 1 from public.app_config where key='mock_payments_enabled')
+
+  -- ---- Manual-UPI owner subscriptions + platform admin (20260629) -----
+  -- Supersedes the mock owner-billing path. The three mock objects below are
+  -- now intentionally REMOVED, so present=t (absent) = OK for those rows.
+  union all select 'column',   'profiles.is_platform_admin', exists (select 1 from information_schema.columns where table_schema='public' and table_name='profiles' and column_name='is_platform_admin')
+  union all select 'function', 'is_platform_admin',          exists (select 1 from pg_proc where proname='is_platform_admin')
+  union all select 'trigger',  'trg_lock_admin_flag on profiles', exists (select 1 from pg_trigger where tgname='trg_lock_admin_flag' and not tgisinternal)
+  union all select 'table',    'subscription_payments',      exists (select 1 from information_schema.tables where table_schema='public' and table_name='subscription_payments')
+  union all select 'index',    'subscription_payments_utr_unique_idx', exists (select 1 from pg_indexes where schemaname='public' and indexname='subscription_payments_utr_unique_idx')
+  union all select 'table',    'subscription_audit',         exists (select 1 from information_schema.tables where table_schema='public' and table_name='subscription_audit')
+  union all select 'trigger',  'trg_subscription_audit on subscription_payments', exists (select 1 from pg_trigger where tgname='trg_subscription_audit' and not tgisinternal)
+  union all select 'function', 'app_submit_subscription_payment', exists (select 1 from pg_proc where proname='app_submit_subscription_payment')
+  union all select 'function', 'app_review_subscription_payment', exists (select 1 from pg_proc where proname='app_review_subscription_payment')
+  union all select 'function', 'get_platform_upi',           exists (select 1 from pg_proc where proname='get_platform_upi')
+  union all select 'function', 'app_set_platform_upi',       exists (select 1 from pg_proc where proname='app_set_platform_upi')
+  union all select 'config',   'platform_upi_id seeded',     exists (select 1 from public.app_config where key='platform_upi_id')
+  -- mock owner-billing system REMOVED by 20260629 — present=t (absent) = OK:
+  union all select 'removed',  'app_simulate_online_payment absent', not exists (select 1 from pg_proc where proname='app_simulate_online_payment')
+  union all select 'removed',  'mock_payments_enabled config absent', not exists (select 1 from public.app_config where key='mock_payments_enabled')
+  union all select 'removed',  'gym_settings.allow_mock_payments absent', not exists (select 1 from information_schema.columns where table_schema='public' and table_name='gym_settings' and column_name='allow_mock_payments')
 )
 select
   kind,
