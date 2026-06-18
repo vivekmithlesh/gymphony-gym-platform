@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/supabase";
 import { Button } from "@/components/ui/button";
 import { LegalLinksFooter } from "@/components/LegalLinksFooter";
+import { isValidUtr, digitsOnly } from "@/lib/utr";
 import {
   Dialog,
   DialogContent,
@@ -58,6 +59,7 @@ export function MemberUpiCheckout({
   // app, and may optionally attach a screenshot. The UTR is required and the DB
   // enforces it can never be submitted twice.
   const [utr, setUtr] = useState("");
+  const [payerName, setPayerName] = useState("");
   const [evidenceUrl, setEvidenceUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
@@ -65,6 +67,7 @@ export function MemberUpiCheckout({
   useEffect(() => {
     if (!open) {
       setUtr("");
+      setPayerName("");
       setEvidenceUrl(null);
     }
   }, [open]);
@@ -100,9 +103,13 @@ export function MemberUpiCheckout({
 
   const handlePaid = async () => {
     if (!plan) return;
+    if (!payerName.trim()) {
+      toast.error("Enter the name used for the payment so the gym can verify it.");
+      return;
+    }
     const ref = utr.trim();
-    if (ref.length < 4) {
-      toast.error("Enter the UPI reference / UTR number shown in your payment app.");
+    if (!isValidUtr(ref)) {
+      toast.error("Enter the UPI reference / UTR number from your payment app (12+ digits).");
       return;
     }
     setIsSubmitting(true);
@@ -117,6 +124,7 @@ export function MemberUpiCheckout({
         payment_method: "UPI",
         payment_date: new Date().toISOString(),
         utr: ref,
+        payer_name: payerName.trim(),
         evidence_url: evidenceUrl,
       }]);
       if (error) {
@@ -130,6 +138,7 @@ export function MemberUpiCheckout({
 
       toast.success("Payment submitted! The gym will confirm it shortly.");
       setUtr("");
+      setPayerName("");
       setEvidenceUrl(null);
       onSubmitted?.();
       onClose();
@@ -183,11 +192,21 @@ export function MemberUpiCheckout({
 
             <div className="w-full space-y-2 pt-1">
               <label className="text-xs font-semibold text-slate-700">
+                Name (as used for the payment) <span className="text-red-500">*</span>
+              </label>
+              <input
+                value={payerName}
+                onChange={(e) => setPayerName(e.target.value)}
+                placeholder="e.g. Rahul Sharma"
+                className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-medium text-slate-900 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
+              />
+
+              <label className="text-xs font-semibold text-slate-700">
                 UPI reference / UTR number <span className="text-red-500">*</span>
               </label>
               <input
                 value={utr}
-                onChange={(e) => setUtr(e.target.value)}
+                onChange={(e) => setUtr(digitsOnly(e.target.value))}
                 inputMode="numeric"
                 placeholder="e.g. 412345678901"
                 className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-medium text-slate-900 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
@@ -214,7 +233,7 @@ export function MemberUpiCheckout({
 
             <Button
               onClick={handlePaid}
-              disabled={isSubmitting || isUploading || utr.trim().length < 4}
+              disabled={isSubmitting || isUploading || !payerName.trim() || !isValidUtr(utr)}
               className="mt-2 h-12 w-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 font-bold text-white hover:from-violet-500 hover:to-fuchsia-500"
             >
               {isSubmitting ? (

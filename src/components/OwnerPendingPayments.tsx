@@ -15,6 +15,7 @@ interface PendingPayment {
   payment_date?: string | null;
   created_at?: string | null;
   utr?: string | null;
+  payer_name?: string | null;
   evidence_url?: string | null;
   member_name?: string;
 }
@@ -47,7 +48,7 @@ export function OwnerPendingPayments({ ownerId, alertsEnabled = true }: OwnerPen
     try {
       const { data, error } = await supabase
         .from("payments")
-        .select("id, member_id, amount, plan_name, payment_method, payment_date, created_at, utr, evidence_url")
+        .select("id, member_id, amount, plan_name, payment_method, payment_date, created_at, utr, payer_name, evidence_url")
         .eq("gym_owner_id", ownerId)
         .eq("status", "pending_verification")
         .order("created_at", { ascending: false });
@@ -160,6 +161,11 @@ export function OwnerPendingPayments({ ownerId, alertsEnabled = true }: OwnerPen
               >
                 <div className="min-w-0">
                   <p className="truncate font-bold text-slate-900">{p.member_name}</p>
+                  {p.payer_name && (
+                    <p className="mt-0.5 truncate text-[11px] text-slate-500">
+                      Paid as <span className="font-semibold text-slate-700">{p.payer_name}</span>
+                    </p>
+                  )}
                   <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                     <Smartphone className="h-3 w-3" />
                     {p.payment_method || "UPI"} · {p.plan_name || "Membership"} ·{" "}

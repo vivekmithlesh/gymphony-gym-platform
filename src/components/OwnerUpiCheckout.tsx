@@ -24,7 +24,7 @@ import {
 import { useAuth } from "@/lib/auth-context";
 import { PLANS, formatINR, type PlanTier, type BillingCycle } from "@/lib/plans";
 import { getPlatformUpi, submitSubscriptionPayment, type PlatformUpi } from "@/lib/platform-billing";
-import { isValidUtr } from "@/lib/utr";
+import { isValidUtr, digitsOnly } from "@/lib/utr";
 
 interface OwnerUpiCheckoutProps {
   open: boolean;
@@ -248,7 +248,7 @@ export function OwnerUpiCheckout({ open, onClose, tier, cycle, onSubmitted }: Ow
               </label>
               <input
                 value={utr}
-                onChange={(e) => setUtr(e.target.value)}
+                onChange={(e) => setUtr(digitsOnly(e.target.value))}
                 inputMode="numeric"
                 placeholder="e.g. 412345678901"
                 className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-medium text-slate-900 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-100"
