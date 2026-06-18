@@ -60,7 +60,7 @@ import { resolveSubscription, subscriptionHasFeature, nextTier, PLANS, formatINR
 import { PlanUsageMeter } from "@/components/PlanUsageMeter";
 import { UpgradeModal } from "@/components/UpgradeModal";
 import { isApprovedPayment } from "@/lib/revenue";
-import { InternationalPhoneInput } from "@/components/InternationalPhoneInput";
+import { IndianMobileInput } from "@/components/IndianMobileInput";
 import { MembersList } from "@/components/MembersList";
 
 import { FeatureGate } from "@/components/FeatureGate";
@@ -75,7 +75,7 @@ import { SettingsView } from "@/components/SettingsView";
 import { AttendanceView } from "@/components/AttendanceView";
 import { AmbientBackground } from "@/components/AmbientBackground";
 import { DashboardErrorBoundary } from "@/components/DashboardErrorBoundary";
-import { INTERNATIONAL_PHONE_REGEX, cleanPhoneInput, isValidInternationalPhone, normalizeToE164Phone, phoneForWaMe } from "@/lib/phone";
+import { isValidIndianMobile, looksLikeIndianMobile, toIndianE164, cleanPhoneInput, phoneForWaMe } from "@/lib/phone";
 import { debounce } from "@/lib/debounce";
 import { useAuth } from "@/lib/auth-context";
 import { 
@@ -1090,11 +1090,11 @@ function DashboardPage() {
       return;
     }
 
-    const normalizedMemberPhone = normalizeToE164Phone(newMemberPhone, "+91");
-    if (!normalizedMemberPhone || !isValidInternationalPhone(normalizedMemberPhone)) {
-      toast.error("Please enter a valid international phone number");
+    if (!looksLikeIndianMobile(newMemberPhone)) {
+      toast.error("Enter a valid 10-digit Indian mobile number");
       return;
     }
+    const normalizedMemberPhone = toIndianE164(newMemberPhone);
 
     // Enforce the real per-tier member cap (Starter 100 / Growth 500 / Pro ∞),
     // resolved from the live subscription — no hardcoded limit.
@@ -1220,11 +1220,11 @@ function DashboardPage() {
       return "";
     }
 
-    if (!INTERNATIONAL_PHONE_REGEX.test(cleaned)) {
+    if (!looksLikeIndianMobile(cleaned)) {
       return "";
     }
 
-    return cleaned;
+    return toIndianE164(cleaned);
   };
 
   const handleSendReminder = async (name: string, phone?: string, amount?: string, kind: 'dues' | 'renewal' = 'dues') => {
@@ -1898,6 +1898,75 @@ function DashboardPage() {
   // with the (filtered) feed.
   const visibleUnreadCount = visibleNotifications.filter((n) => !n.isRead).length;
 
+  // Notification bell + dropdown, extracted so it can render in BOTH the desktop
+  // header and the mobile header (previously the bell was desktop-only, so mobile
+  // owners had no access to notifications). State is shared; only the
+  // breakpoint-visible copy is ever on screen.
+  const notificationsBell = (
+    <div className="relative">
+      <Button
+        variant="outline"
+        size="icon"
+        className="rounded-full bg-white border border-slate-200 hover:border-primary/30 hover:bg-primary/5 text-slate-600 hover:text-primary transition-all shadow-sm relative group"
+        onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
+        title="Notifications"
+        aria-label="Notifications"
+      >
+        <Bell className="h-5 w-5 transition-transform group-hover:rotate-12" />
+        {visibleUnreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 h-5 w-5 bg-gradient-brand border-2 border-white rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg">
+            {visibleUnreadCount}
+          </span>
+        )}
+      </Button>
+
+      <AnimatePresence>
+        {isNotificationsOpen && (
+          <>
+            <div className="fixed inset-0 z-30" onClick={() => setIsNotificationsOpen(false)} />
+            <motion.div
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              className="absolute right-0 mt-4 w-80 max-w-[calc(100vw-2rem)] bg-white border border-primary/10 rounded-3xl shadow-elegant z-40 overflow-hidden"
+            >
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-brand" />
+              <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h3 className="font-bold text-slate-900">Notifications</h3>
+                <button
+                  onClick={markNotificationsAsRead}
+                  className="text-xs font-bold text-primary hover:text-primary/80 transition-colors"
+                >
+                  Mark all as read
+                </button>
+              </div>
+              <div className="max-h-100 overflow-y-auto custom-scrollbar">
+                {visibleNotifications.length > 0 ? (
+                  visibleNotifications.map((n) => (
+                    <div key={n.id} className={`p-5 border-b border-slate-50 hover:bg-primary/5 transition-colors ${!n.isRead ? 'bg-primary/2' : ''}`}>
+                      <div className="flex justify-between items-start mb-1.5">
+                        <span className="text-[10px] font-black text-primary uppercase tracking-widest">{n.title}</span>
+                        <span className="text-[10px] font-medium text-slate-400">{n.time}</span>
+                      </div>
+                      <p className="text-sm text-slate-700 font-medium leading-relaxed">{n.message}</p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-10 text-center space-y-2">
+                    <div className="h-12 w-12 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto text-slate-300">
+                      <Bell className="h-6 w-6" />
+                    </div>
+                    <p className="text-slate-400 text-sm font-medium">No new notifications</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+
   return (
     <DashboardErrorBoundary>
     <div className="relative w-full h-screen bg-slate-50 text-foreground flex flex-col overflow-hidden">
@@ -2137,9 +2206,11 @@ function DashboardPage() {
             </div>
             <span className="font-display text-lg font-bold tracking-tight">Gymphony</span>
           </Link>
-          <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
+          <div className="flex items-center gap-2">
+            {notificationsBell}
+            <Sheet open={isMobileMenuOpen} onOpenChange={setIsMobileMenuOpen}>
             <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="rounded-xl border-white/10 bg-white/5">
+              <Button variant="outline" size="icon" className="rounded-xl border-white/10 bg-white/5" aria-label="Open menu">
                 <Menu className="h-5 w-5" />
               </Button>
             </SheetTrigger>
@@ -2193,8 +2264,19 @@ function DashboardPage() {
                   );
                 })}
               </nav>
+
+              <div className="mt-6 border-t border-white/10 pt-6">
+                <button
+                  onClick={handleLogout}
+                  className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-muted-foreground transition-colors hover:bg-red-400/10 hover:text-red-400"
+                >
+                  <LogOut className="h-5 w-5" />
+                  <span className="text-sm">Logout</span>
+                </button>
+              </div>
             </SheetContent>
           </Sheet>
+          </div>
         </div>
 
         {/* Header (Desktop) */}
@@ -2220,69 +2302,10 @@ function DashboardPage() {
               <Monitor className="h-5 w-5" />
             </Button>
 
-            <div className="relative">
-              <Button 
-                variant="outline" 
-                size="icon" 
-                className="rounded-full bg-white border border-slate-200 hover:border-primary/30 hover:bg-primary/5 text-slate-600 hover:text-primary transition-all shadow-sm relative group"
-                onClick={() => setIsNotificationsOpen(!isNotificationsOpen)}
-              >
-                <Bell className="h-5 w-5 transition-transform group-hover:rotate-12" />
-                {visibleUnreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 h-5 w-5 bg-gradient-brand border-2 border-white rounded-full flex items-center justify-center text-[10px] font-bold text-white shadow-lg">
-                    {visibleUnreadCount}
-                  </span>
-                )}
-              </Button>
-
-              <AnimatePresence>
-                {isNotificationsOpen && (
-                  <>
-                    <div className="fixed inset-0 z-30" onClick={() => setIsNotificationsOpen(false)} />
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      className="absolute right-0 mt-4 w-80 bg-white border border-primary/10 rounded-3xl shadow-elegant z-40 overflow-hidden"
-                    >
-                      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-brand" />
-                      <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                        <h3 className="font-bold text-slate-900">Notifications</h3>
-                        <button 
-                          onClick={markNotificationsAsRead}
-                          className="text-xs font-bold text-primary hover:text-primary/80 transition-colors"
-                        >
-                          Mark all as read
-                        </button>
-                      </div>
-                      <div className="max-h-100 overflow-y-auto custom-scrollbar">
-                        {visibleNotifications.length > 0 ? (
-                          visibleNotifications.map((n) => (
-                            <div key={n.id} className={`p-5 border-b border-slate-50 hover:bg-primary/5 transition-colors ${!n.isRead ? 'bg-primary/2' : ''}`}>
-                              <div className="flex justify-between items-start mb-1.5">
-                                <span className="text-[10px] font-black text-primary uppercase tracking-widest">{n.title}</span>
-                                <span className="text-[10px] font-medium text-slate-400">{n.time}</span>
-                              </div>
-                              <p className="text-sm text-slate-700 font-medium leading-relaxed">{n.message}</p>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="p-10 text-center space-y-2">
-                            <div className="h-12 w-12 rounded-2xl bg-slate-50 flex items-center justify-center mx-auto text-slate-300">
-                              <Bell className="h-6 w-6" />
-                            </div>
-                            <p className="text-slate-400 text-sm font-medium">No new notifications</p>
-                          </div>
-                        )}
-                      </div>
-                    </motion.div>
-                  </>
-                )}
-              </AnimatePresence>
-            </div>
+            {notificationsBell}
 
             <div className="relative">
-              <button 
+              <button
                 onClick={() => setIsProfileOpen(!isProfileOpen)}
                 className="h-10 w-10 rounded-full bg-gradient-brand p-0.5 transition-transform hover:scale-105 overflow-hidden flex items-center justify-center"
               >
@@ -2409,14 +2432,13 @@ function DashboardPage() {
                     <Input value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} className="bg-slate-50 text-slate-900" />
                   </div>
                   <div className="space-y-2">
-                    <InternationalPhoneInput
+                    <IndianMobileInput
                       id="new-member-phone"
                       label="Phone Number"
                       value={newMemberPhone}
                       onChange={setNewMemberPhone}
-                      placeholder="e.g. +919876543210"
-                      defaultCountryCode="+91"
-                      error={newMemberPhone && !isValidInternationalPhone(newMemberPhone) ? "Please enter a valid international phone number" : undefined}
+                      placeholder="9876543210"
+                      error={newMemberPhone && !isValidIndianMobile(newMemberPhone) ? "Enter a valid 10-digit Indian mobile number" : undefined}
                       className="group"
                       inputClassName="bg-slate-50 text-slate-900 border-slate-200"
                     />
