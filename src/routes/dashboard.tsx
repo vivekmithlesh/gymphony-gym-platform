@@ -179,7 +179,7 @@ type GymPlan = {
 
 function DashboardPage() {
   const navigate = useNavigate();
-  const { user: authUser } = useAuth();
+  const { user: authUser, isPlatformAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   // Locked-feature upgrade prompt (nav click on a feature above the plan).
@@ -2173,10 +2173,21 @@ function DashboardPage() {
               </button>
             );
           })}
+
+          {/* Platform admin only — jump to the super-admin panel (/admin). */}
+          {isPlatformAdmin && (
+            <button
+              onClick={() => navigate({ to: "/admin" })}
+              className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-primary hover:bg-primary/10 transition-all"
+            >
+              <ShieldCheck className="h-5 w-5" />
+              <span className="text-sm font-medium">Admin Panel</span>
+            </button>
+          )}
         </nav>
 
         <div className="p-6 mt-auto">
-          <button 
+          <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors"
           >
@@ -2252,6 +2263,20 @@ function DashboardPage() {
                     </button>
                   );
                 })}
+
+                {/* Platform admin only — jump to the super-admin panel (/admin). */}
+                {isPlatformAdmin && (
+                  <button
+                    onClick={() => {
+                      navigate({ to: "/admin" });
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-primary transition-all hover:bg-primary/10"
+                  >
+                    <ShieldCheck className="h-5 w-5" />
+                    <span className="text-sm font-medium">Admin Panel</span>
+                  </button>
+                )}
               </nav>
 
               <div className="mt-6 border-t border-white/10 pt-6">
