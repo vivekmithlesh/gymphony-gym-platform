@@ -38,7 +38,30 @@
       "Bash(npx eslint *)",
       "Bash(npx prettier *)",
       "Bash(git -C /c/Users/hp/gymphony-gym-growth-platform status --short)",
-      "Bash(git -C /c/Users/hp/gymphony-gym-growth-platform diff --stat)"
+      "Bash(git -C /c/Users/hp/gymphony-gym-growth-platform diff --stat)",
+      "Bash(git checkout *)",
+      "Bash(git stash *)",
+      "PowerShell(npx eslint src/lib/app-url.ts src/lib/auth-redirect.ts src/lib/logger.ts src/components/JoinGymFlow.tsx src/components/SelfCheckIn.tsx src/routes/join.`$gymId.tsx src/routes/checkin.`$gymId.tsx src/components/MembershipGate.tsx src/components/MemberJoinScanner.tsx src/components/MemberWallCheckIn.tsx 2>&1 | Select-Object -Last 50)",
+      "PowerShell(npx prettier --write src/lib/app-url.ts src/lib/auth-redirect.ts src/lib/logger.ts src/components/JoinGymFlow.tsx src/components/SelfCheckIn.tsx \"src/routes/join.`$gymId.tsx\" \"src/routes/checkin.`$gymId.tsx\" src/lib/app-url.test.ts src/lib/auth-redirect.test.ts 2>&1 | Select-Object -Last 20)",
+      "PowerShell(git *)",
+      "PowerShell(cd C:\\\\Users\\\\hp\\\\gymphony-gym-growth-platform; $v = Get-Command vercel -ErrorAction SilentlyContinue; if \\($v\\) { Write-Output \"vercel CLI: $\\($v.Source\\)\" } else { Write-Output \"no vercel CLI installed\" }; if \\(Test-Path vercel.json\\) { Write-Output \"vercel.json present\" } else { Write-Output \"no vercel.json \\(git-integration deploy\\)\" })",
+      "Bash(git check-ignore *)",
+      "Bash(npx vitest *)",
+      "Bash(node *)",
+      "Bash(echo \"exit: $?\")",
+      "PowerShell(npx vitest run 2>&1 | Select-Object -Last 40)",
+      "PowerShell(git --no-pager diff src/routes/dashboard.tsx | Select-String -Pattern '^@@' | ForEach-Object { $_.Line })",
+      "Bash(git push *)",
+      "Bash(command -v vercel)",
+      "Bash(ls vercel.json)",
+      "Bash(git rev-list *)",
+      "Bash(git merge --no-ff feature/wall-qr-checkin -m 'Merge feature/wall-qr-checkin: India-only mobile input + mobile notifications bell *)",
+      "Bash(gh auth *)",
+      "Bash(curl -s -i -X OPTIONS https://zpmtcgnxzhzahrtjqvlu.supabase.co/auth/v1/signup -H 'Origin: http://localhost:8080' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: content-type,cache-control,apikey,x-client-info' -m 15)",
+      "Bash(git grep *)",
+      "Bash(echo \"---EXIT: $?---\")",
+      "Bash(git fetch *)",
+      "Bash(echo \"vercel CLI: $\\(command -v vercel\\)\")"
     ]
   }
 }
