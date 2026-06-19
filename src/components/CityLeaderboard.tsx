@@ -186,29 +186,51 @@ const ChampionCard = ({ entry, isMine, city }: { entry: GymLeaderboardEntry; isM
 /* -------------------------------------------------------------------------- */
 /*  Main component                                                             */
 /* -------------------------------------------------------------------------- */
-export const CityLeaderboard = () => {
+interface CityLeaderboardProps {
+  /**
+   * Force-highlight a specific gym as "yours" — e.g. the gym the member is
+   * currently a member of. Takes priority over the auto-resolved gym so a member
+   * who switches gyms highlights their CURRENT gym, not a stale/owned one.
+   */
+  highlightGymId?: string | null;
+}
+
+export const CityLeaderboard = ({ highlightGymId }: CityLeaderboardProps = {}) => {
   const { leaderboard, isLoading, isRealtimeConnected } = useCityGymLeaderboard(CITY);
 
   // Only mount Leaflet on the client.
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  // The logged-in owner's own gym, so we can highlight "where they stand".
+  // The gym to highlight as "yours". An explicit highlightGymId (the member's
+  // current gym) always wins; otherwise resolve from the signed-in user —
+  // preferring the gym they're a MEMBER of (profiles.gym_id) over one they OWN,
+  // so a member who just joined a new gym highlights that gym, not the old one.
   const { user } = useAuth();
-  const [myGymId, setMyGymId] = useState<string | null>(null);
+  const [myGymId, setMyGymId] = useState<string | null>(highlightGymId ?? null);
   useEffect(() => {
+    if (highlightGymId) { setMyGymId(highlightGymId); return; }
     let active = true;
     (async () => {
-      if (!user?.id) return;
-      const { data } = await supabase
-        .from("gym_settings")
-        .select("id")
-        .eq("gym_owner_id", user.id)
+      if (!user?.id) { setMyGymId(null); return; }
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("gym_id")
+        .eq("id", user.id)
         .maybeSingle();
-      if (active) setMyGymId(data?.id ?? null);
+      let gid = profile?.gym_id ?? null;
+      if (!gid) {
+        const { data: owned } = await supabase
+          .from("gym_settings")
+          .select("id")
+          .eq("gym_owner_id", user.id)
+          .maybeSingle();
+        gid = owned?.id ?? null;
+      }
+      if (active) setMyGymId(gid);
     })();
     return () => { active = false; };
-  }, [user?.id]);
+  }, [user?.id, highlightGymId]);
 
   const myRank = useMemo(
     () => leaderboard.find((g) => g.gym_id === myGymId)?.rank ?? null,

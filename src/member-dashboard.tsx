@@ -1188,7 +1188,7 @@ export default function MemberDashboard() {
                 )}
 
                 {activeTab === 'leaderboard' && (
-                  <CityLeaderboard />
+                  <CityLeaderboard highlightGymId={member.gym_id ?? gymInfo?.id ?? null} />
                 )}
                 {activeTab === 'explorer' && (
                   <Suspense fallback={<PremiumLoader fullScreen={false} title="Loading Map" subtext="Plotting nearby gyms across your city…" />}>
