@@ -61,7 +61,12 @@
       "Bash(git grep *)",
       "Bash(echo \"---EXIT: $?---\")",
       "Bash(git fetch *)",
-      "Bash(echo \"vercel CLI: $\\(command -v vercel\\)\")"
+      "Bash(echo \"vercel CLI: $\\(command -v vercel\\)\")",
+      "Bash(git pull *)",
+      "Bash(command -v supabase)",
+      "Bash(command -v psql)",
+      "Bash(psql --version)",
+      "Bash(sed 's/=//')"
     ]
   }
 }
