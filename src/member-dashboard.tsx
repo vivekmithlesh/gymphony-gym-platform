@@ -48,7 +48,7 @@ const CityGymExplorer = lazy(() =>
 );
 import { IndianMobileInput } from "@/components/IndianMobileInput";
 import { isValidIndianMobile, toIndianE164 } from "@/lib/phone";
-import { useRealtimeLeaderboard } from "@/hooks/useRealtimeLeaderboard";
+import { useCityGymLeaderboard } from "@/hooks/useCityGymLeaderboard";
 import { MemberUpiCheckout } from "@/components/MemberUpiCheckout";
 import { LegalLinksFooter } from "@/components/LegalLinksFooter";
 import { MemberAttendanceTab } from "@/components/MemberAttendanceTab";
@@ -241,7 +241,9 @@ export default function MemberDashboard() {
   const qrScannerRef = useRef<Html5QrcodeScanner | null>(null);
 
   const CITY = "ALIGARH";
-  const { leaderboard, isLoading: leaderboardLoading } = useRealtimeLeaderboard(CITY, true);
+  // Same source as the Leaderboard tab (CityLeaderboard) so the front-page Gym
+  // Rank always matches the rankings the member sees there.
+  const { leaderboard } = useCityGymLeaderboard(CITY);
 
   useEffect(() => {
     if (member?.full_name) {
@@ -331,12 +333,12 @@ export default function MemberDashboard() {
   const firstName = useMemo(() => member?.full_name?.split(" ")?.[0] ?? "Member", [member]);
   const membershipName = member?.membership_plan || "Active Member";
 
-  // ✅ PERFECT RANK LOGIC: Sorts safely and finds correct position
+  // Rank of the member's CURRENT gym, read straight from the city leaderboard
+  // (already sorted + ranked) by matching gym_settings.id — identical to how the
+  // Leaderboard tab resolves it, so the two never disagree.
   const gymRank = useMemo(() => {
     if (!member?.gym_id || !leaderboard.length) return null;
-    const sortedLeaderboard = [...leaderboard].sort((a, b) => (b.vibe_points ?? 0) - (a.vibe_points ?? 0));
-    const index = sortedLeaderboard.findIndex(e => e.gym_id === member.gym_id || e.gym_owner_id === member.gym_id);
-    return index !== -1 ? index + 1 : null;
+    return leaderboard.find((e) => e.gym_id === member.gym_id)?.rank ?? null;
   }, [member?.gym_id, leaderboard]);
 
   const fetchInventory = useCallback(async (gymId: string) => {
