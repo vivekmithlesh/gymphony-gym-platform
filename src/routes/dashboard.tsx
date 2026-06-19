@@ -1,6 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { buildJoinUrl } from "@/lib/app-url";
+import { QRValidator } from "@/lib/qr/QRValidator";
+import { QRService, QR_TYPES } from "@/lib/qr/QRService";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "@tanstack/react-router";
@@ -223,12 +225,18 @@ function DashboardPage() {
 
       setIsFetchingMemberToLink(true);
       try {
-        // Search by short_id first, then by full id
-        const { data, error } = await supabase
+        // Match the right column: a full UUID hits id, anything else hits short_id.
+        // (Comparing the uuid column against a non-UUID literal errors in Postgres.)
+        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          memberIdToLink.trim()
+        );
+        const lookup = supabase
           .from("profiles")
-          .select("id, full_name, avatar_url, short_id")
-          .or(`short_id.eq.${memberIdToLink},id.eq.${memberIdToLink}`)
-          .maybeSingle();
+          .select("id, full_name, avatar_url, short_id");
+        const { data, error } = await (isUuid
+          ? lookup.eq("id", memberIdToLink.trim())
+          : lookup.eq("short_id", memberIdToLink.trim())
+        ).maybeSingle();
 
         if (error) throw error;
         setMemberDetailsToLink(data);
@@ -992,39 +1000,34 @@ function DashboardPage() {
     }
   }, [currentUserId, markDashboardFatalError]);
 
-  const handleCheckIn = async (memberId: string) => {
+  // Owner-side check-in via a scanned member pass. Routes the raw QR text through
+  // the SAME server-authoritative RPC the kiosk uses (QRService.kioskCheckIn), so
+  // it accepts the exact QR the member shows from their Virtual ID Card — the
+  // short-lived signed token, the legacy {member_id,gym_id} JSON, or a bare UUID.
+  // The RPC decodes/verifies the pass, enforces cross-gym ownership + dedupe and
+  // records attendance, then we refresh the dashboard from its result.
+  const handleScannedCheckIn = async (rawScan: string) => {
     try {
-      const { data: member, error: memberError } = await supabase
-        .from("members")
-        .select("full_name, membership_plan")
-        .eq("id", memberId)
-        .single();
+      const result = await QRService.kioskCheckIn(rawScan);
 
-      if (memberError || !member) {
-        toast.error("Member not found");
+      if (!result.success) {
+        toast.error(result.error || "Check-in failed");
         return;
       }
 
-      const { error: checkInError } = await supabase
-        .from("check_ins")
-        .insert([{ member_id: memberId, gym_id: gymSettings?.id ?? null, check_in_time: new Date().toISOString() }]);
+      const name = result.member_name || "Member";
 
-      if (checkInError) throw checkInError;
-
-      if (currentUserId) {
-        await supabase.from("activity_log").insert([{
-          gym_owner_id: currentUserId,
-          activity_type: "attendance",
-          description: `${member.full_name} checked in.`,
-          is_read: false
-        }]);
+      if (result.already_checked_in) {
+        toast.success(result.message || `${name} is already checked in.`);
+      } else if (result.status === "denied") {
+        toast.error(`Access denied — ${name}`);
+      } else {
+        setCheckedInMember({ name, plan: "" });
+        setTimeout(() => setCheckedInMember(null), 3000);
+        toast.success(`Welcome back, ${name}!`);
       }
 
       fetchLiveMemberCount();
-      setCheckedInMember({ name: member.full_name, plan: member.membership_plan });
-      
-      setTimeout(() => setCheckedInMember(null), 3000);
-      toast.success(`Welcome back, ${member.full_name}!`);
       fetchRecentActivities();
     } catch (err) {
       console.warn("Check-in error:", err);
@@ -1048,8 +1051,9 @@ function DashboardPage() {
     setIsCheckingIn(false);
   }, []);
 
-  // ✅ Initialize the check-in QR scanner (reuses the existing handleCheckIn
-  // logic that writes to check_ins, logs activity and updates the live count).
+  // ✅ Initialize the check-in QR scanner. Classifies the scan with the shared
+  // QRValidator and hands the raw member pass to the server-authoritative
+  // check-in RPC (handleScannedCheckIn).
   const initializeCheckInScanner = useCallback(() => {
     if (checkInScannerRef.current || !isScanQROpen) return;
 
@@ -1060,20 +1064,12 @@ function DashboardPage() {
     );
 
     const onScanSuccess = async (decodedText: string) => {
-      // Member QR codes encode the raw members.id UUID. Fall back to a
-      // member_id query param if the QR happens to be a URL.
-      let memberId = decodedText.trim();
-      try {
-        if (memberId.includes("?") || memberId.includes("&")) {
-          const url = new URL(memberId, window.location.origin);
-          memberId = url.searchParams.get("member_id") || memberId;
-        }
-      } catch {
-        // Not a URL — keep the raw decoded text.
-      }
-
-      if (!memberId) {
-        toast.error("Invalid QR code. No member ID found.");
+      // Classify client-side first so non-member QRs (wall/join posters, junk)
+      // fail instantly with a clear message instead of a wasted server round-trip.
+      const parsed = QRValidator.parse(decodedText);
+      if (parsed.type !== QR_TYPES.MEMBER_PASS) {
+        // Stable id so a non-member QR held in frame updates one toast, not many.
+        toast.error("That's not a member pass QR code.", { id: "checkin-scan-invalid" });
         return;
       }
 
@@ -1085,7 +1081,8 @@ function DashboardPage() {
         checkInScannerRef.current = null;
       }
 
-      await handleCheckIn(memberId);
+      // Pass the raw token through; the RPC decodes signed/legacy/bare formats.
+      await handleScannedCheckIn(parsed.token);
 
       setIsScanQROpen(false);
       setIsCheckingIn(false);
@@ -1329,23 +1326,18 @@ function DashboardPage() {
     );
 
     const onScanSuccess = async (decodedText: string) => {
-      setIsScanningMember(true);
-
       try {
-        // Extract member_id from QR code (UUID format)
-        let memberId = decodedText;
-
-        // If it's a URL, extract member_id parameter
-        if (decodedText.includes("?") || decodedText.includes("&")) {
-          const url = new URL(decodedText, window.location.origin);
-          memberId = url.searchParams.get("member_id") || decodedText;
-        }
-
-        if (!memberId || memberId.length === 0) {
-          toast.error("Invalid QR code. No member ID found.");
-          setIsScanningMember(false);
+        // The member pass encodes the member's UUID (inside a signed token, the
+        // legacy {member_id} JSON, or as a bare UUID) — never the short_id. Use
+        // the shared validator to pull the real id out of whichever format it is.
+        const parsed = QRValidator.parse(decodedText);
+        if (parsed.type !== QR_TYPES.MEMBER_PASS || !parsed.memberId) {
+          // Stable id so a non-member QR held in frame updates one toast, not many.
+          toast.error("That's not a member pass QR code.", { id: "member-scan-invalid" });
           return;
         }
+
+        setIsScanningMember(true);
 
         // Stop scanner before linking
         if (memberQRScannerRef.current) {
@@ -1354,7 +1346,7 @@ function DashboardPage() {
         }
 
         // Link member to gym
-        await handleLinkMemberToGym(memberId);
+        await handleLinkMemberToGym(parsed.memberId);
       } catch (error) {
         console.error("QR scan error:", error);
         toast.error("Could not process QR code. Please try again.");
@@ -1386,15 +1378,20 @@ function DashboardPage() {
     setIsLinkingMember(true);
 
     try {
-      // 1. Search for the member in 'profiles' table using short_id (6B1F3D9B style)
-      const { data: profileData, error: profileError } = await supabase
-        .from("profiles")
-        .select("id, full_name, short_id")
-        .eq("short_id", memberId)
-        .maybeSingle();
+      // 1. Resolve the member in 'profiles'. A scanned QR gives the member's full
+      // UUID, while the "Add by ID" tab gives a short_id (6B1F3D9B style) — match
+      // the right column so both paths work (querying id with a non-UUID errors).
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        (memberId || "").trim()
+      );
+      const lookup = supabase.from("profiles").select("id, full_name, short_id");
+      const { data: profileData, error: profileError } = await (isUuid
+        ? lookup.eq("id", memberId.trim())
+        : lookup.eq("short_id", memberId.trim())
+      ).maybeSingle();
 
       if (profileError || !profileData) {
-        toast.error("Member with this ID not found. Please check the short_id.");
+        toast.error("Member with this ID not found. Please check the ID.");
         setIsLinkingMember(false);
         return;
       }
