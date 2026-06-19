@@ -225,8 +225,12 @@ export function useCityGymLeaderboard(city: string = "ALIGARH") {
   }, [fetchLeaderboard]);
 
   useEffect(() => {
+    // Unique per hook instance — this hook can mount more than once at a time
+    // (e.g. the member dashboard's rank card AND the open Leaderboard tab). A
+    // shared topic name makes the second subscribe collide and throw, so the
+    // random suffix keeps each subscription independent.
     const channel = supabase
-      .channel(`city-gym-leaderboard-${city.toLowerCase()}`)
+      .channel(`city-gym-leaderboard-${city.toLowerCase()}-${Math.random().toString(36).slice(2)}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "workout_logs" },
