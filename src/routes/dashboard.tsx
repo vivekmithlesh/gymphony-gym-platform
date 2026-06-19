@@ -56,7 +56,6 @@ import { toast } from "sonner";
 import { QRCodeSVG } from "qrcode.react";
 import { Html5QrcodeScanner } from "html5-qrcode";
 import { supabase, supabaseUrl } from "@/supabase";
-import { startSubscriptionCheckout } from "@/lib/razorpay";
 import { hasAccess, FeatureName, LIMITS } from "@/lib/permissions";
 import { resolveSubscription, subscriptionHasFeature, nextTier, PLANS, formatINR, planAllows, requiredTierFor, type AppFeature, type PlanTier } from "@/lib/plans";
 import { PlanUsageMeter } from "@/components/PlanUsageMeter";
@@ -180,7 +179,7 @@ type GymPlan = {
 
 function DashboardPage() {
   const navigate = useNavigate();
-  const { user: authUser } = useAuth();
+  const { user: authUser, isPlatformAdmin } = useAuth();
   const [activeTab, setActiveTab] = useState("Dashboard");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   // Locked-feature upgrade prompt (nav click on a feature above the plan).
@@ -191,8 +190,21 @@ function DashboardPage() {
   // whenever the active tab changes. (TanStack <ScrollRestoration/> wouldn't fire
   // here — there's no route change.)
   const mainScrollRef = useRef<HTMLElement>(null);
+  // <main> is a custom overflow-y-auto scroll container (the page wrapper is
+  // h-screen/overflow-hidden so the window itself never scrolls). On a hard
+  // refresh or back-nav the browser/SSR could re-apply a previous scroll position
+  // AFTER React mounts — which looked like the dashboard "auto-scrolling down".
+  // Take manual control of restoration so nothing scrolls us unexpectedly.
   useEffect(() => {
-    mainScrollRef.current?.scrollTo({ top: 0 });
+    if (typeof window !== "undefined" && "scrollRestoration" in window.history) {
+      window.history.scrollRestoration = "manual";
+    }
+  }, []);
+  // Pin to the top on load and on tab change — after paint (rAF) so our reset
+  // wins over any late scroll restoration.
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => mainScrollRef.current?.scrollTo({ top: 0 }));
+    return () => cancelAnimationFrame(raf);
   }, [activeTab]);
   const [isAddMemberOpen, setIsAddMemberOpen] = useState(false);
   const [addMemberTab, setAddMemberTab] = useState("Manual Entry");
@@ -236,7 +248,6 @@ function DashboardPage() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isTrialExpired, setIsTrialExpired] = useState(false);
   const [isLimitReachedModalOpen, setIsLimitReachedModalOpen] = useState(false);
-  const [isProcessingUpgrade, setIsProcessingUpgrade] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [liveMemberCount, setLiveMemberCount] = useState(statsCache.liveMemberCount);
   const [totalMembersCount, setTotalMembersCount] = useState(statsCache.totalMembersCount);
@@ -1482,25 +1493,6 @@ function DashboardPage() {
     };
   }, [isScanQROpen, initializeCheckInScanner]);
 
-  const handleUpgradePayment = async () => {
-    if (!currentUserId) return;
-    // Upgrade to the next tier via Razorpay. The client never writes the plan —
-    // the verified webhook does (gym_settings plan columns are locked down).
-    const target = nextTier(resolveSubscription(gymSettings).tier) ?? "growth";
-    await startSubscriptionCheckout({
-      tier: target,
-      cycle: "monthly",
-      ownerId: currentUserId,
-      ownerEmail: gymSettings?.owner_email,
-      ownerName: gymSettings?.gym_name,
-      setProcessing: setIsProcessingUpgrade,
-      onActivated: () => {
-        setIsLimitReachedModalOpen(false);
-        fetchGymSettings(currentUserId);
-      },
-    });
-  };
-
   useEffect(() => {
     if (dashboardFatalErrorRef.current) {
       return;
@@ -2194,10 +2186,21 @@ function DashboardPage() {
               </button>
             );
           })}
+
+          {/* Platform admin only — jump to the super-admin panel (/admin). */}
+          {isPlatformAdmin && (
+            <button
+              onClick={() => navigate({ to: "/admin" })}
+              className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-primary hover:bg-primary/10 transition-all"
+            >
+              <ShieldCheck className="h-5 w-5" />
+              <span className="text-sm font-medium">Admin Panel</span>
+            </button>
+          )}
         </nav>
 
         <div className="p-6 mt-auto">
-          <button 
+          <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-4 py-3 w-full rounded-xl text-muted-foreground hover:text-red-400 hover:bg-red-400/10 transition-colors"
           >
@@ -2273,6 +2276,20 @@ function DashboardPage() {
                     </button>
                   );
                 })}
+
+                {/* Platform admin only — jump to the super-admin panel (/admin). */}
+                {isPlatformAdmin && (
+                  <button
+                    onClick={() => {
+                      navigate({ to: "/admin" });
+                      setIsMobileMenuOpen(false);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-primary transition-all hover:bg-primary/10"
+                  >
+                    <ShieldCheck className="h-5 w-5" />
+                    <span className="text-sm font-medium">Admin Panel</span>
+                  </button>
+                )}
               </nav>
 
               <div className="mt-6 border-t border-white/10 pt-6">

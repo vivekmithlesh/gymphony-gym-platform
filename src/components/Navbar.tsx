@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Menu, X } from "lucide-react";
 import { Logo } from "./Logo";
 import { Link } from "@tanstack/react-router";
+import { useAuth } from "@/lib/auth-context";
 
 const links = [
   { href: "#why", label: "Why Gymphony" },
@@ -13,6 +14,7 @@ const links = [
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const { isPlatformAdmin } = useAuth();
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12);
@@ -47,6 +49,14 @@ export function Navbar() {
         </nav>
 
         <div className="hidden items-center gap-3 md:flex">
+          {isPlatformAdmin && (
+            <Link
+              to="/admin"
+              className="text-sm font-semibold text-primary transition-colors hover:text-primary/80"
+            >
+              Admin
+            </Link>
+          )}
           <Link
             to="/member-login"
             className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
@@ -83,6 +93,15 @@ export function Navbar() {
                 {l.label}
               </a>
             ))}
+            {isPlatformAdmin && (
+              <Link
+                to="/admin"
+                onClick={() => setOpen(false)}
+                className="rounded-lg px-4 py-3 text-sm font-semibold text-primary hover:bg-accent"
+              >
+                Admin
+              </Link>
+            )}
             <Link
               to="/member-login"
               onClick={() => setOpen(false)}

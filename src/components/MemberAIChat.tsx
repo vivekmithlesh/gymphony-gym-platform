@@ -18,17 +18,30 @@ interface MemberAIChatProps {
 }
 
 const GREETING = 'Hello! I am your Gymphony AI assistant. How can I help you today?';
+const COMING_SOON_GREETING =
+  "Our AI assistant is coming soon! 🚀 Soon you'll be able to ask about plans, timings, workouts and diet right here.";
+
+// Flip to true once the AI webhook (the 'whatsapp-ai' Edge Function) is live.
+// While false the widget shows a "Coming soon" badge and the composer is
+// disabled, so members can't chat into a backend that isn't ready yet.
+const AI_ASSISTANT_ENABLED: boolean = false;
 
 export function MemberAIChat({ gymId, gymOwnerId, memberName, memberPhone }: MemberAIChatProps) {
-  const [messages, setMessages] = useState<ChatTurn[]>([{ role: 'ai', content: GREETING }]);
+  const [messages, setMessages] = useState<ChatTurn[]>([
+    { role: 'ai', content: AI_ASSISTANT_ENABLED ? GREETING : COMING_SOON_GREETING },
+  ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
-  const endRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef<HTMLDivElement | null>(null);
   const mountedRef = useRef(true);
 
-  // Auto-scroll to the newest message / typing indicator.
+  // Keep the latest message in view by scrolling ONLY this chat panel's own list
+  // — never the page. The previous endRef.scrollIntoView() bubbled up to the
+  // dashboard's <main> scroll container and yanked the whole page down to the
+  // widget on load (cropping the header) and on every new message.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const c = messagesRef.current;
+    if (c) c.scrollTop = c.scrollHeight;
   }, [messages, isTyping]);
 
   // Track mount so an in-flight reply never sets state after unmount.
@@ -67,7 +80,7 @@ export function MemberAIChat({ gymId, gymOwnerId, memberName, memberPhone }: Mem
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || isTyping) return;
+    if (!AI_ASSISTANT_ENABLED || !text || isTyping) return;
 
     // Show the member's message on the right immediately.
     setMessages((prev) => [...prev, { role: 'user', content: text }]);
@@ -120,19 +133,25 @@ export function MemberAIChat({ gymId, gymOwnerId, memberName, memberPhone }: Mem
             </span>
             AI Gym Assistant
           </span>
-          <span className="flex items-center gap-1.5 text-xs font-semibold text-green-600">
-            <span className="relative flex h-2 w-2">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+          {AI_ASSISTANT_ENABLED ? (
+            <span className="flex items-center gap-1.5 text-xs font-semibold text-green-600">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+              </span>
+              Online
             </span>
-            Online
-          </span>
+          ) : (
+            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
+              Coming soon
+            </span>
+          )}
         </CardTitle>
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col gap-3">
         {/* Scrollable message history — capped height so it scrolls instead of growing the card. */}
-        <div className="flex h-96 max-h-96 min-h-72 flex-1 flex-col gap-3 overflow-y-auto custom-scrollbar rounded-xl bg-slate-50 p-3">
+        <div ref={messagesRef} className="flex h-96 max-h-96 min-h-72 flex-1 flex-col gap-3 overflow-y-auto custom-scrollbar rounded-xl bg-slate-50 p-3">
           {messages.map((m, i) => {
             const isUser = m.role === 'user';
             return (
@@ -169,7 +188,6 @@ export function MemberAIChat({ gymId, gymOwnerId, memberName, memberPhone }: Mem
               </div>
             </div>
           )}
-          <div ref={endRef} />
         </div>
 
         {/* Input + send */}
@@ -178,12 +196,13 @@ export function MemberAIChat({ gymId, gymOwnerId, memberName, memberPhone }: Mem
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask about plans, timings, workouts…"
+            placeholder={AI_ASSISTANT_ENABLED ? 'Ask about plans, timings, workouts…' : 'Chat assistant coming soon…'}
+            disabled={!AI_ASSISTANT_ENABLED}
             className="flex-1"
           />
           <Button
             onClick={handleSend}
-            disabled={!input.trim() || isTyping}
+            disabled={!AI_ASSISTANT_ENABLED || !input.trim() || isTyping}
             size="icon"
             className="shrink-0 bg-linear-to-br from-indigo-600 to-purple-600 text-white hover:opacity-90"
             title="Send"

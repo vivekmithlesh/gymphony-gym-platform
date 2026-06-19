@@ -45,7 +45,8 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/supabase";
 import { useAuth } from "@/lib/auth-context";
-import { startSubscriptionCheckout } from "@/lib/razorpay";
+import { OwnerUpiCheckout } from "@/components/OwnerUpiCheckout";
+import { SubscriptionHistory } from "@/components/SubscriptionHistory";
 import {
   PLAN_LIST,
   PLANS,
@@ -110,7 +111,6 @@ type GymSettings = {
   latitude: number | null;
   longitude: number | null;
   checkin_radius_m: number;
-  allow_mock_payments: boolean;
   opening_time: string;
   closing_time: string;
   // Optional second ("evening") shift — gyms that close mid-afternoon. Same
@@ -181,7 +181,6 @@ const buildDefaultSettings = (userId: string, email: string): Omit<GymSettings, 
   latitude: null,
   longitude: null,
   checkin_radius_m: 100,
-  allow_mock_payments: false,
   opening_time: "",
   closing_time: "",
   evening_opening_time: null,
@@ -394,6 +393,8 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
 
   // ── Billing state ───────────────────────────────────────────────────────────
   const [isProcessingBilling, setIsProcessingBilling] = useState(false);
+  const [upiCheckout, setUpiCheckout] = useState<{ tier: PlanTier; cycle: BillingCycle } | null>(null);
+  const [historyRefresh, setHistoryRefresh] = useState(0);
   const { user } = useAuth();
 
   // ── Init ─────────────────────────────────────────────────────────────────────
@@ -443,7 +444,6 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
           latitude: toFiniteNumber(data.latitude ?? data.lat),
           longitude: toFiniteNumber(data.longitude ?? data.lng),
           checkin_radius_m: toFiniteNumber(data.checkin_radius_m) ?? 100,
-          allow_mock_payments: data.allow_mock_payments ?? false,
           gym_photos: Array.isArray(data.gym_photos) ? data.gym_photos : [],
           gym_videos: Array.isArray(data.gym_videos) ? data.gym_videos : [],
         });
@@ -944,30 +944,12 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
     }
   }, [userId]);
 
-  // Select / upgrade to a paid tier via Razorpay. The client NEVER writes the
-  // plan (gym_settings plan columns are locked down — 20260621); the verified
-  // razorpay-webhook grants it server-side. We just open checkout and refresh.
-  const handleSelectPlan = useCallback(
-    async (tier: PlanTier, cycle: BillingCycle) => {
-      if (!userId) return;
-      await startSubscriptionCheckout({
-        tier,
-        cycle,
-        ownerId: userId,
-        ownerEmail: settings.owner_email,
-        ownerName: settings.gym_name,
-        setProcessing: setIsProcessingBilling,
-        onActivated: async () => {
-          const { data } = await supabase.from("gym_settings").select("*").eq("gym_owner_id", userId).single();
-          if (data) setSettings(data);
-        },
-      });
-    },
-    [userId, settings.owner_email, settings.gym_name],
-  );
-
-  // (Legacy mock/PhonePe/Stripe upgrade handlers removed — all paid upgrades now
-  // go through handleSelectPlan → Razorpay → verified webhook → app_set_owner_plan.)
+  // Select / upgrade to a paid tier via the manual-UPI flow: open the checkout
+  // modal. The owner pays the platform UPI and submits a UTR; a platform admin
+  // verifies it and the plan is activated server-side (never client-written).
+  const handleSelectPlan = useCallback((tier: PlanTier, cycle: BillingCycle) => {
+    setUpiCheckout({ tier, cycle });
+  }, []);
 
   // ── Security / Support ────────────────────────────────────────────────────────
   const handlePasswordReset = useCallback(async () => {
@@ -1633,21 +1615,6 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
                     />
                     <GymJoinQRCode gymId={gymId} gymName={settings.gym_name} />
                   </div>
-                  <Card className="border-border bg-white shadow-soft">
-                    <CardContent className="flex items-center justify-between gap-4 p-5">
-                      <div className="space-y-0.5">
-                        <p className="text-sm font-bold text-slate-900">Online payments (demo gateway)</p>
-                        <p className="text-xs text-muted-foreground">
-                          Let members self-activate instantly via "Pay Online". Leave OFF until a real
-                          gateway is connected — otherwise approve payments manually.
-                        </p>
-                      </div>
-                      <Switch
-                        checked={settings.allow_mock_payments}
-                        onCheckedChange={(checked) => persistSettings({ allow_mock_payments: checked })}
-                      />
-                    </CardContent>
-                  </Card>
                 </div>
               )}
 
@@ -1877,6 +1844,25 @@ export function SettingsView({ initialCategory = "Gym Profile" }: { initialCateg
                       );
                     })}
                   </div>
+
+                  {/* Subscription payment history */}
+                  <Card className="border-border bg-white shadow-soft">
+                    <CardHeader>
+                      <CardTitle className="text-lg font-bold text-slate-900">Subscription payments</CardTitle>
+                      <CardDescription>Your plan payment requests and their status.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <SubscriptionHistory key={historyRefresh} />
+                    </CardContent>
+                  </Card>
+
+                  <OwnerUpiCheckout
+                    open={!!upiCheckout}
+                    tier={upiCheckout?.tier ?? null}
+                    cycle={upiCheckout?.cycle ?? billingCycle}
+                    onClose={() => setUpiCheckout(null)}
+                    onSubmitted={() => setHistoryRefresh((n) => n + 1)}
+                  />
 
                   {/* Gym Plans CRUD */}
                   <Card className="border-border bg-white shadow-soft">
