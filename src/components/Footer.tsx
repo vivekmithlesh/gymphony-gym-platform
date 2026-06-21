@@ -30,10 +30,10 @@ export function Footer() {
                 <Phone className="h-4 w-4" /> +91 96247 90088
               </a>
               <a
-                href="mailto:hello@gymphony.app"
+                href="mailto:vivekkumar12092005@gmail.com"
                 className="flex items-center gap-2 text-muted-foreground transition-colors hover:text-primary"
               >
-                <Mail className="h-4 w-4" /> hello@gymphony.app
+                <Mail className="h-4 w-4" /> vivekkumar12092005@gmail.com
               </a>
               <p className="flex items-center gap-2 text-muted-foreground">
                 <MapPin className="h-4 w-4" /> India

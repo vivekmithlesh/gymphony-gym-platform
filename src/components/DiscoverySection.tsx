@@ -203,7 +203,7 @@ export function DiscoverySection() {
             <div className="relative rounded-3xl border border-white/20 bg-white/40 p-8 shadow-elegant backdrop-blur-xl dark:bg-black/20">
               <div className="mb-8 flex items-center justify-between">
                 <div>
-                  <h3 className="font-display text-xl font-bold text-foreground">Top Gyms in Aligarh</h3>
+                  <h3 className="font-display text-xl font-bold text-foreground">Top Gyms in your city</h3>
                   <p className="text-sm text-muted-foreground">Based on member rankings</p>
                 </div>
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -243,7 +243,7 @@ export function DiscoverySection() {
                     <UserCircle className="h-6 w-6 text-primary" />
                   </div>
                   <h4 className="font-bold text-foreground">Your Gym</h4>
-                  <p className="mt-1 text-xs text-muted-foreground">You are not ranked yet in Aligarh</p>
+                  <p className="mt-1 text-xs text-muted-foreground">You are not ranked yet in your city</p>
                   
                   <Link to="/signup" className="block mt-6">
                     <Button className="w-full rounded-xl bg-primary hover:bg-primary/90 text-white shadow-glow">
