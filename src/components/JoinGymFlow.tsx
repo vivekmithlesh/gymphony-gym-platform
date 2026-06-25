@@ -62,8 +62,20 @@ type Phase =
   | "owner"
   | "already"
   | "other_gym"
+  | "invited"
+  | "declined"
   | "profile"
   | "join";
+
+interface InvitePreview {
+  found?: boolean;
+  gym_name?: string;
+  invite_id?: string;
+  full_name?: string;
+  phone_masked?: string | null;
+  membership_plan?: string | null;
+  status?: string;
+}
 
 const ACTIVE = "active";
 // select("*") (not an explicit column list) because some branding columns like
@@ -88,8 +100,20 @@ export function JoinGymFlow({ gymId }: { gymId: string }) {
   const [profilePhone, setProfilePhone] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [invite, setInvite] = useState<InvitePreview | null>(null);
+  const [invitePhone, setInvitePhone] = useState("");
+  const [acceptingInvite, setAcceptingInvite] = useState(false);
   const linkedRef = useRef(false);
   const scanLoggedRef = useRef(false);
+  // Decide the per-member route exactly once so accept/reject can't be overridden
+  // by an effect re-run.
+  const flowDecidedRef = useRef(false);
+
+  // Owner-created member-specific invite token from /join/:gymId?invite=<token>.
+  const inviteToken = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    return new URLSearchParams(window.location.search).get("invite");
+  }, []);
 
   // ── 1. Load gym branding + plans (independent of auth) ─────────────────────
   useEffect(() => {
@@ -200,6 +224,9 @@ export function JoinGymFlow({ gymId }: { gymId: string }) {
     }
 
     (async () => {
+      if (flowDecidedRef.current) return;
+      flowDecidedRef.current = true;
+
       const { data: profile } = await supabase
         .from("profiles")
         .select("status, gym_id, full_name, phone, mobile_number")
@@ -238,6 +265,21 @@ export function JoinGymFlow({ gymId }: { gymId: string }) {
         !!profile?.gym_id && profile.gym_id !== gymId && statusLower === ACTIVE;
       if (activeElsewhere) {
         setPhase("other_gym");
+        return;
+      }
+
+      // Owner-created invite? Resolve it (by token, or by this member's own phone
+      // for a generic gym QR) and show Accept/Reject BEFORE any linking/payment.
+      const { data: inviteData } = await supabase.rpc("app_resolve_invite", {
+        p_gym_id: gymId,
+        p_token: inviteToken,
+      });
+      const preview = (inviteData ?? {}) as InvitePreview;
+      if (preview.found && (preview.status ?? "") !== "active") {
+        setInvite(preview);
+        const known = profile?.phone || profile?.mobile_number || "";
+        setInvitePhone(known ? toIndianLocal(known) : "");
+        setPhase("invited");
         return;
       }
 
@@ -292,6 +334,48 @@ export function JoinGymFlow({ gymId }: { gymId: string }) {
       setSavingProfile(false);
     }
   }, [user, profileName, profilePhone, gymId]);
+
+  // Accept an owner invite: the phone the member confirms MUST match the invite's
+  // number (server-enforced) — then the profile is bound to the gym (Pending) and
+  // we move to plan selection / payment.
+  const acceptInvite = useCallback(async () => {
+    if (!looksLikeIndianMobile(invitePhone)) {
+      toast.error("Enter the 10-digit number your invite was sent to");
+      return;
+    }
+    setAcceptingInvite(true);
+    try {
+      const { data, error } = await supabase.rpc("app_accept_member_invite", {
+        p_gym_id: gymId,
+        p_token: inviteToken,
+        p_phone: toIndianE164(invitePhone),
+      });
+      if (error) throw error;
+      const res = (data ?? {}) as { success?: boolean; code?: string; error?: string };
+      if (!res.success) {
+        toast.error(res.error || "Could not accept this invite.");
+        return;
+      }
+      setPhase("join");
+    } catch (err) {
+      logEvent("membership", "invite-accept-failed", { gymId, error: String(err) });
+      toast.error("Could not accept the invite. Please try again.");
+    } finally {
+      setAcceptingInvite(false);
+    }
+  }, [gymId, inviteToken, invitePhone]);
+
+  const rejectInvite = useCallback(async () => {
+    setAcceptingInvite(true);
+    try {
+      await supabase.rpc("app_reject_member_invite", { p_gym_id: gymId, p_token: inviteToken });
+    } catch {
+      /* best-effort; show declined either way */
+    } finally {
+      setAcceptingInvite(false);
+      setPhase("declined");
+    }
+  }, [gymId, inviteToken]);
 
   // Server-authoritative gym switch: resets the member to Pending for THIS gym so
   // they re-pay and get re-approved (the lockdown trigger forbids a client status
@@ -408,6 +492,109 @@ export function JoinGymFlow({ gymId }: { gymId: string }) {
                 <QrCode className="h-4 w-4" /> Check in
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      </Shell>
+    );
+  }
+
+  // phase === "invited": the owner pre-created this member. Confirm the phone the
+  // invite was sent to, then Accept (→ pay) or Reject.
+  if (phase === "invited") {
+    return (
+      <Shell>
+        <Card className="mx-auto max-w-md border-white/10 bg-white/5 backdrop-blur-xl">
+          <CardContent className="flex flex-col gap-5 p-8">
+            <div className="text-center">
+              <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-brand text-white shadow-glow">
+                <Building2 className="h-7 w-7" />
+              </div>
+              <h2 className="text-xl font-bold">You've been invited 🎉</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {invite?.full_name ? (
+                  <>
+                    <span className="font-semibold text-foreground">{invite.full_name}</span>,
+                    you've
+                  </>
+                ) : (
+                  "You've"
+                )}{" "}
+                been invited to join{" "}
+                <span className="font-semibold text-foreground">
+                  {invite?.gym_name || gym?.gym_name || "this gym"}
+                </span>
+                {invite?.membership_plan ? (
+                  <>
+                    {" "}
+                    on the{" "}
+                    <span className="font-semibold text-foreground">
+                      {invite.membership_plan}
+                    </span>{" "}
+                    plan
+                  </>
+                ) : null}
+                .
+              </p>
+              {invite?.phone_masked && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Invite sent to {invite.phone_masked}
+                </p>
+              )}
+            </div>
+
+            <IndianMobileInput
+              id="invite-confirm-phone"
+              label="Confirm your phone number"
+              value={invitePhone}
+              onChange={setInvitePhone}
+              placeholder="9876543210"
+              inputClassName="bg-white/5 border-white/10"
+            />
+
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button
+                onClick={acceptInvite}
+                disabled={acceptingInvite}
+                className="flex-1 gap-2 bg-gradient-brand font-bold text-white shadow-glow"
+              >
+                {acceptingInvite ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    Accept invite <ArrowRight className="h-4 w-4" />
+                  </>
+                )}
+              </Button>
+              <Button
+                onClick={rejectInvite}
+                disabled={acceptingInvite}
+                variant="outline"
+                className="flex-1"
+              >
+                Reject
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </Shell>
+    );
+  }
+
+  // phase === "declined": member rejected the invite.
+  if (phase === "declined") {
+    return (
+      <Shell>
+        <Card className="mx-auto max-w-md border-white/10 bg-white/5 backdrop-blur-xl">
+          <CardContent className="flex flex-col items-center gap-4 p-10 text-center">
+            <AlertCircle className="h-12 w-12 text-slate-400" />
+            <h2 className="text-xl font-bold">Invite declined</h2>
+            <p className="text-sm text-muted-foreground">
+              You've declined this invite. If this was a mistake, ask {gym?.gym_name || "the gym"}{" "}
+              to send it again.
+            </p>
+            <Button variant="outline" onClick={() => navigate({ to: "/member-dashboard" })}>
+              Go to my dashboard
+            </Button>
           </CardContent>
         </Card>
       </Shell>
@@ -556,6 +743,7 @@ export function JoinGymFlow({ gymId }: { gymId: string }) {
           refund_url: gym!.refund_url,
         }}
         plans={plans}
+        preselectPlanName={invite?.membership_plan ?? null}
         onActivated={() => {
           logEvent("membership", "activated", { gymId, memberId: user!.id });
           toast.success("Membership activated! Welcome in. 💪");

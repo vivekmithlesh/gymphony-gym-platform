@@ -39,6 +39,8 @@ interface MembershipGateProps {
   memberId: string;
   gym: GymContext;
   plans: GatePlan[];
+  /** If set (e.g. the plan the owner picked on the invite), auto-select it. */
+  preselectPlanName?: string | null;
   /** Called the instant the membership becomes Active (owner approval). */
   onActivated: () => void;
 }
@@ -53,7 +55,13 @@ const ACTIVE = "active";
 // approval" lock, and the realtime + poll auto-unlock. Both methods record a
 // 'pending_verification' payments row that the owner approves manually — there is
 // no self-activation path.
-export function MembershipGate({ memberId, gym, plans, onActivated }: MembershipGateProps) {
+export function MembershipGate({
+  memberId,
+  gym,
+  plans,
+  preselectPlanName,
+  onActivated,
+}: MembershipGateProps) {
   const [phase, setPhase] = useState<Phase>("waiting"); // assume waiting until we know
   const [plan, setPlan] = useState<GatePlan | null>(null);
   const [busy, setBusy] = useState(false);
@@ -96,12 +104,24 @@ export function MembershipGate({ memberId, gym, plans, onActivated }: Membership
         setPendingPaymentId(existing.id);
         setPhase("waiting");
       } else {
-        setPhase("select");
+        // If the owner already chose a plan on the invite, preselect it and jump
+        // straight to the payment method chooser.
+        const pre = preselectPlanName
+          ? plans.find((p) => p.plan_name?.toLowerCase() === preselectPlanName.toLowerCase())
+          : null;
+        if (pre) {
+          setPlan(pre);
+          setPhase("method");
+        } else {
+          setPhase("select");
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
+    // Mount-only: plans/preselectPlanName are stable by the time the gate shows.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memberId, gym.id]);
 
   // Realtime + safety poll so the lock lifts the instant the owner approves
@@ -207,7 +227,9 @@ export function MembershipGate({ memberId, gym, plans, onActivated }: Membership
               <Clock className="h-9 w-9" />
               <span className="absolute inset-0 animate-ping rounded-2xl bg-primary/30" />
             </div>
-            <h2 className="text-2xl font-bold tracking-tight">Waiting for the gym to approve your payment…</h2>
+            <h2 className="text-2xl font-bold tracking-tight">
+              Waiting for the gym to approve your payment…
+            </h2>
             <p className="max-w-md text-muted-foreground">
               {gym.gym_name || "Your gym"} will confirm your payment shortly. This screen unlocks
               automatically the moment they approve — no need to refresh.
@@ -249,7 +271,8 @@ export function MembershipGate({ memberId, gym, plans, onActivated }: Membership
                   <QRCodeSVG value={upiUri} size={200} level="M" includeMargin />
                 </div>
                 <p className="text-center text-xs text-muted-foreground">
-                  Scan with any UPI app, or pay to <span className="font-bold text-foreground">{gym.upi_id}</span>
+                  Scan with any UPI app, or pay to{" "}
+                  <span className="font-bold text-foreground">{gym.upi_id}</span>
                 </p>
                 <a
                   href={upiUri}
@@ -262,7 +285,11 @@ export function MembershipGate({ memberId, gym, plans, onActivated }: Membership
                   disabled={busy}
                   className="h-12 w-full rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 font-bold text-white hover:from-violet-500 hover:to-fuchsia-500"
                 >
-                  {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                  {busy ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                  )}
                   I have paid via UPI
                 </Button>
               </>
@@ -306,7 +333,9 @@ export function MembershipGate({ memberId, gym, plans, onActivated }: Membership
               <Smartphone className="h-6 w-6 shrink-0 text-fuchsia-500" />
               <div>
                 <p className="font-bold">Pay via UPI</p>
-                <p className="text-xs text-muted-foreground">Scan the gym's UPI QR, then submit for approval</p>
+                <p className="text-xs text-muted-foreground">
+                  Scan the gym's UPI QR, then submit for approval
+                </p>
               </div>
             </button>
 
@@ -322,7 +351,9 @@ export function MembershipGate({ memberId, gym, plans, onActivated }: Membership
               )}
               <div>
                 <p className="font-bold">Pay at Desk / Cash</p>
-                <p className="text-xs text-muted-foreground">Pay in person — the gym approves your membership</p>
+                <p className="text-xs text-muted-foreground">
+                  Pay in person — the gym approves your membership
+                </p>
               </div>
             </button>
           </CardContent>
@@ -345,7 +376,9 @@ export function MembershipGate({ memberId, gym, plans, onActivated }: Membership
           <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
             <AlertCircle className="h-10 w-10 text-amber-500" />
             <p className="text-sm font-medium">This gym hasn't published any plans yet.</p>
-            <p className="text-xs text-muted-foreground">Please ask the front desk to add a plan.</p>
+            <p className="text-xs text-muted-foreground">
+              Please ask the front desk to add a plan.
+            </p>
           </CardContent>
         </Card>
       ) : (
